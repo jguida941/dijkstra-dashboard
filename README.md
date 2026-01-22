@@ -8,7 +8,7 @@ Build custom graphs and watch Dijkstra's algorithm find the shortest path step-b
 
 ## Demo
 
-<video src="https://github.com/user-attachments/assets/edf959c2-e262-4245-9ad4-5a4b49f3f89f" controls></video>
+![Demo](https://github.com/user-attachments/assets/edf959c2-e262-4245-9ad4-5a4b49f3f89f)
 
 ## Features
 
