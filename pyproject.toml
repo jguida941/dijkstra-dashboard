@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dijkstra-dashboard"
+version = "0.1.0"
+description = "PyQt6-based visualization tool for Dijkstra's shortest path algorithm."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "PyQt6>=6.4.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest",
+  "pytest-qt",
+  "pytest-xvfb",
+  "pytest-cov",
+  "pytest-benchmark",
+  "hypothesis",
+]
+
+[project.scripts]
+dijkstra-ui = "dijkstra_dashboard.__main__:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

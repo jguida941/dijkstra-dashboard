@@ -1,18 +1,8 @@
+import os
 import sys
-from PyQt6.QtWidgets import QApplication
-from main_window import MainWindow
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
-def main():
-    app = QApplication(sys.argv)
-    
-    # Set application style
-    app.setStyle('Fusion')
-    
-    # Create and show the main window
-    window = MainWindow()
-    window.show()
-    
-    sys.exit(app.exec())
+from dijkstra_dashboard.__main__ import main
 
 if __name__ == '__main__':
-    main() 
+    main()

@@ -1,0 +1,95 @@
+{
+  "version": 1,
+  "directed": false,
+  "metadata": {
+    "name": "Simple six-node graph"
+  },
+  "nodes": {
+    "A": {
+      "label": "A",
+      "x": 0,
+      "y": -200
+    },
+    "B": {
+      "label": "B",
+      "x": 173,
+      "y": -100
+    },
+    "C": {
+      "label": "C",
+      "x": 173,
+      "y": 100
+    },
+    "D": {
+      "label": "D",
+      "x": 0,
+      "y": 200
+    },
+    "E": {
+      "label": "E",
+      "x": -173,
+      "y": 100
+    },
+    "F": {
+      "label": "F",
+      "x": -173,
+      "y": -100
+    }
+  },
+  "edges": [
+    {
+      "id": "A--B",
+      "start": "A",
+      "end": "B",
+      "weight": 5
+    },
+    {
+      "id": "A--C",
+      "start": "A",
+      "end": "C",
+      "weight": 3
+    },
+    {
+      "id": "A--E",
+      "start": "A",
+      "end": "E",
+      "weight": 11
+    },
+    {
+      "id": "B--C",
+      "start": "B",
+      "end": "C",
+      "weight": 1
+    },
+    {
+      "id": "B--F",
+      "start": "B",
+      "end": "F",
+      "weight": 2
+    },
+    {
+      "id": "C--D",
+      "start": "C",
+      "end": "D",
+      "weight": 1
+    },
+    {
+      "id": "C--E",
+      "start": "C",
+      "end": "E",
+      "weight": 5
+    },
+    {
+      "id": "D--E",
+      "start": "D",
+      "end": "E",
+      "weight": 9
+    },
+    {
+      "id": "D--F",
+      "start": "D",
+      "end": "F",
+      "weight": 3
+    }
+  ]
+}

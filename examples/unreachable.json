@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "directed": false,
+  "metadata": {
+    "name": "Unreachable target"
+  },
+  "nodes": {
+    "A": {
+      "label": "A",
+      "x": -150,
+      "y": 0
+    },
+    "B": {
+      "label": "B",
+      "x": 0,
+      "y": 0
+    },
+    "C": {
+      "label": "C",
+      "x": 150,
+      "y": 0
+    }
+  },
+  "edges": [
+    {
+      "id": "A--B",
+      "start": "A",
+      "end": "B",
+      "weight": 4
+    }
+  ]
+}

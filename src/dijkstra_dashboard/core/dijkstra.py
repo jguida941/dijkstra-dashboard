@@ -1,4 +1,7 @@
 def shortest_path(graph, start, target=""):
+    if hasattr(graph, "to_adjacency_dict"):
+        graph = graph.to_adjacency_dict()
+
     unvisited = list(graph)
     distances = {node: 0 if node == start else float('inf') for node in graph}
     paths = {node: [] for node in graph}
@@ -14,11 +17,4 @@ def shortest_path(graph, start, target=""):
                 
         unvisited.remove(current)
 
-    # Set targets_to_print to [target] if given, otherwise default to all graph nodes
-    targets_to_print = [target] if target else graph
-    for node in targets_to_print:
-        if node == start:
-            continue
-        print(f'\n{start}-{node} distance: {distances[node]}\nPath: {" -> ".join(paths[node])}')
-
-    return distances, paths 
+    return distances, paths

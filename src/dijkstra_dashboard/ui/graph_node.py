@@ -1,11 +1,17 @@
-from PyQt6.QtWidgets import QGraphicsEllipseItem, QGraphicsSimpleTextItem, QGraphicsDropShadowEffect
+from PyQt6.QtWidgets import QGraphicsEllipseItem, QGraphicsSimpleTextItem, QGraphicsDropShadowEffect, QGraphicsItem
 from PyQt6.QtCore import Qt, QPointF, QPropertyAnimation, QEasingCurve
 from PyQt6.QtGui import QPen, QBrush, QColor, QFont, QRadialGradient, QFontDatabase
 
 class GraphNode(QGraphicsEllipseItem):
-    def __init__(self, name):
+    def __init__(self, name, node_id=None, move_callback=None):
         super().__init__(-20, -20, 40, 40)
         self.name = name
+        self.node_id = node_id or name
+        self.move_callback = move_callback
+
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         
         # Set default appearance with gradient
         gradient = QRadialGradient(0, 0, 20)
@@ -54,6 +60,33 @@ class GraphNode(QGraphicsEllipseItem):
         self.pulse_animation.setStartValue(20)
         self.pulse_animation.setEndValue(40)
         self.pulse_animation.setLoopCount(-1)  # Infinite loop
+
+    def set_label(self, text):
+        self.name = text
+        self.label.setText(text)
+        text_rect = self.label.boundingRect()
+        self.label.setPos(-text_rect.width() / 2, -text_rect.height() / 2 - 2)
+
+    def itemChange(self, change, value):
+        if change == QGraphicsItem.GraphicsItemChange.ItemPositionChange:
+            # Constrain node position to stay within scene bounds
+            scene = self.scene()
+            if scene:
+                scene_rect = scene.sceneRect()
+                node_radius = 25  # Node radius + padding
+                min_x = scene_rect.left() + node_radius
+                max_x = scene_rect.right() - node_radius
+                min_y = scene_rect.top() + node_radius
+                max_y = scene_rect.bottom() - node_radius
+
+                new_pos = QPointF(value)
+                new_pos.setX(max(min_x, min(new_pos.x(), max_x)))
+                new_pos.setY(max(min_y, min(new_pos.y(), max_y)))
+                return new_pos
+        elif change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged:
+            if self.move_callback is not None:
+                self.move_callback(self, value)
+        return super().itemChange(change, value)
 
     def highlight(self, is_final_path=False):
         # Change node color based on whether it's part of the final path

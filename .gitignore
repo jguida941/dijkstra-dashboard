@@ -28,3 +28,7 @@ dist/
 # OS
 .DS_Store
 Thumbs.db
+
+# Local planning docs
+PLAN.md
+plan.md
