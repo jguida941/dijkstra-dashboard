@@ -1,5 +1,11 @@
 # Dijkstra Path Visualizer
 
+> Interactive visualization tool for Dijkstra's shortest path algorithm built with PyQt6
+
+[![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://python.org)
+[![PyQt6](https://img.shields.io/badge/PyQt6-GUI-green.svg)](https://pypi.org/project/PyQt6/)
+[![License](https://img.shields.io/badge/License-Evaluation-red.svg)](LICENSE)
+
 A PyQt6-based interactive visualization tool for Dijkstra's shortest path algorithm. Watch the algorithm explore your graph step-by-step and find the optimal path.
 
 ![Main View](img/main-view.png)
@@ -17,9 +23,9 @@ A PyQt6-based interactive visualization tool for Dijkstra's shortest path algori
 - **Play/Pause/Step controls** for detailed exploration
 - **Adjustable speed** slider
 - **Color-coded feedback**:
-  - 🟢 Green: Final shortest path
-  - 🔵 Cyan: Visited nodes during exploration
-  - 🔴 Red: Nodes/edges not in the final path
+  - Green: Final shortest path
+  - Cyan: Visited nodes during exploration
+  - Red: Nodes/edges not in the final path
 
 ![Directed Graph Visualization](img/directed-graph.png)
 
@@ -38,9 +44,9 @@ A PyQt6-based interactive visualization tool for Dijkstra's shortest path algori
 
 ![Undirected Graph](img/undirected-graph.png)
 
-### Save & Load
-- **Save graphs** to JSON files (File → Save Graph)
-- **Load graphs** from JSON files (File → Open Graph)
+### Save and Load
+- **Save graphs** to JSON files (File > Save Graph)
+- **Load graphs** from JSON files (File > Open Graph)
 - Preserves node positions, labels, edge weights, and directed/undirected mode
 
 ## Installation
@@ -79,13 +85,13 @@ python -m dijkstra_dashboard
 3. Use "Step" to advance one step at a time
 4. Use "Reset" to clear the visualization
 
-### Optional (editable install):
+### Optional (editable install)
 ```bash
 pip install -e .
 dijkstra-ui
 ```
 
-### Tests (optional)
+### Tests
 ```bash
 pytest
 ```
@@ -94,28 +100,41 @@ pytest
 
 ```
 .
-├── main.py                         # Entry point
-├── img/                            # Screenshots
+├── main.py                           # Entry point
+├── pyproject.toml                    # Package configuration
+├── pytest.ini                        # Test configuration
+├── requirements.txt                  # Dependencies
+├── img/                              # Screenshots
+├── examples/                         # Example graph JSON files
+├── lessons/
+│   └── shortest_path.py              # Algorithm explanation
+├── tests/
+│   └── core/                         # Unit tests
 ├── src/
 │   └── dijkstra_dashboard/
-│       ├── __main__.py             # Application entry
-│       ├── config.py               # Configuration
+│       ├── __main__.py               # Package entry point
+│       ├── config.py                 # Configuration
 │       ├── core/
-│       │   ├── graph.py            # Graph data structure
-│       │   ├── dijkstra.py         # Algorithm implementation
-│       │   ├── algorithms/         # Algorithm framework
-│       │   ├── layouts/            # Graph layout algorithms
-│       │   └── serialization.py    # JSON save/load
+│       │   ├── graph.py              # Graph data structure
+│       │   ├── dijkstra.py           # Core algorithm
+│       │   ├── algorithms/           # Algorithm framework
+│       │   │   ├── dijkstra.py       # Dijkstra implementation
+│       │   │   ├── runner.py         # Step-by-step execution
+│       │   │   └── registry.py       # Algorithm registry
+│       │   ├── layouts/              # Graph layout algorithms
+│       │   │   ├── circle.py
+│       │   │   ├── grid.py
+│       │   │   └── spring.py
+│       │   ├── serialization.py      # JSON save/load
+│       │   ├── validation.py         # Input validation
+│       │   └── errors.py             # Custom exceptions
 │       └── ui/
-│           ├── main_window.py      # Main application window
-│           ├── graph_view.py       # Graph canvas widget
-│           ├── graph_node.py       # Node rendering
-│           ├── graph_edge.py       # Edge rendering
-│           ├── controls_panel.py   # Playback controls
-│           └── status_panel.py     # Algorithm status display
-├── tests/                          # Unit tests
-├── examples/                       # Example graph files
-└── requirements.txt                # Dependencies
+│           ├── main_window.py        # Main application window
+│           ├── graph_view.py         # Graph canvas widget
+│           ├── graph_node.py         # Node rendering
+│           ├── graph_edge.py         # Edge rendering
+│           ├── controls_panel.py     # Playback controls
+│           └── status_panel.py       # Status display
 ```
 
 ## Controls Reference
@@ -133,10 +152,10 @@ pytest
 
 ## License
 
-**Evaluation only — all rights reserved.**
+**Evaluation only - all rights reserved.**
 
 You may **clone and run locally** for personal or hiring evaluation.
-You may **not** redistribute, sublicense, or use this work commercially without my written permission.
+You may **not** redistribute, sublicense, or use this work commercially without written permission.
 
 See the [LICENSE](LICENSE) file for the exact terms.
 
