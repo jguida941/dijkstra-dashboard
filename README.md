@@ -49,7 +49,7 @@ Build custom graphs and watch Dijkstra's algorithm find the shortest path step-b
 - **Load graphs** from JSON files (File > Open Graph)
 - Preserves node positions, labels, edge weights, and directed/undirected mode
 
-![Save and Load Graphs](img/main-view.png)
+![Save and Load Graphs](img/main-view-new.png)
 
 ## Installation
 
