@@ -1,18 +1,14 @@
 # Dijkstra Path Visualizer
 
-> Interactive visualization tool for Dijkstra's shortest path algorithm built with PyQt6
-
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://python.org)
 [![PyQt6](https://img.shields.io/badge/PyQt6-GUI-green.svg)](https://pypi.org/project/PyQt6/)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-A PyQt6-based interactive visualization tool for Dijkstra's shortest path algorithm. Watch the algorithm explore your graph step-by-step and find the optimal path.
+Build custom graphs and watch Dijkstra's algorithm find the shortest path step-by-step. Add nodes, connect them with weighted edges, and visualize exactly how the algorithm explores and solves the graph.
 
 ## Demo
 
-<!-- Add your video here -->
-<!-- Example: ![Demo](img/demo.gif) -->
-<!-- Or embed YouTube: [![Demo Video](https://img.youtube.com/vi/VIDEO_ID/0.jpg)](https://www.youtube.com/watch?v=VIDEO_ID) -->
+<!-- Add your demo video here -->
 
 ## Features
 
