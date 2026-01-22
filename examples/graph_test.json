@@ -78,6 +78,12 @@
       "start": "F",
       "end": "n1",
       "weight": 1.0
+    },
+    {
+      "id": "B--n1",
+      "start": "B",
+      "end": "n1",
+      "weight": 1.0
     }
   ]
 }

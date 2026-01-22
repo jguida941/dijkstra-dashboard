@@ -8,7 +8,11 @@
 
 A PyQt6-based interactive visualization tool for Dijkstra's shortest path algorithm. Watch the algorithm explore your graph step-by-step and find the optimal path.
 
-![Main View](img/main-view.png)
+## Demo
+
+<!-- Add your video here -->
+<!-- Example: ![Demo](img/demo.gif) -->
+<!-- Or embed YouTube: [![Demo Video](https://img.youtube.com/vi/VIDEO_ID/0.jpg)](https://www.youtube.com/watch?v=VIDEO_ID) -->
 
 ## Features
 
@@ -44,10 +48,12 @@ A PyQt6-based interactive visualization tool for Dijkstra's shortest path algori
 
 ![Undirected Graph](img/undirected-graph.png)
 
-### Save and Load
+### Save and Load JSON Graphs
 - **Save graphs** to JSON files (File > Save Graph)
 - **Load graphs** from JSON files (File > Open Graph)
 - Preserves node positions, labels, edge weights, and directed/undirected mode
+
+![Save and Load Graphs](img/main-view.png)
 
 ## Installation
 
