@@ -7,7 +7,8 @@
 Build custom graphs and watch Dijkstra's algorithm find the shortest path step-by-step. Add nodes, connect them with weighted edges, and visualize exactly how the algorithm explores and solves the graph.
 
 ## Demo
-https://github.com/user-attachments/assets/edf959c2-e262-4245-9ad4-5a4b49f3f89f
+
+<video src="https://github.com/user-attachments/assets/edf959c2-e262-4245-9ad4-5a4b49f3f89f" controls></video>
 
 ## Features
 
