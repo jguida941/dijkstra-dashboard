@@ -4,7 +4,7 @@
 [![PyQt6](https://img.shields.io/badge/PyQt6-GUI-green.svg)](https://pypi.org/project/PyQt6/)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Algorithm](https://img.shields.io/badge/Algorithm-Dijkstra-orange.svg)](https://en.wikipedia.org/wiki/Dijkstra%27s_algorithm)
-[![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg)]()
+[![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows%20%7C%20Linux-red.svg)]()
 [![Graph Theory](https://img.shields.io/badge/Graph_Theory-Shortest_Path-purple.svg)]()
 
 Build custom graphs and watch Dijkstra's algorithm find the shortest path step-by-step. Add nodes, connect them with weighted edges, and visualize exactly how the algorithm explores and solves the graph.
