@@ -4,7 +4,7 @@
 
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://python.org)
 [![PyQt6](https://img.shields.io/badge/PyQt6-GUI-green.svg)](https://pypi.org/project/PyQt6/)
-[![License](https://img.shields.io/badge/License-Evaluation-red.svg)](LICENSE)
+[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 A PyQt6-based interactive visualization tool for Dijkstra's shortest path algorithm. Watch the algorithm explore your graph step-by-step and find the optimal path.
 
@@ -158,11 +158,4 @@ pytest
 
 ## License
 
-**Evaluation only - all rights reserved.**
-
-You may **clone and run locally** for personal or hiring evaluation.
-You may **not** redistribute, sublicense, or use this work commercially without written permission.
-
-See the [LICENSE](LICENSE) file for the exact terms.
-
-**Qt note:** This app uses **PyQt6 (GPLv3)**. Do **not** redistribute the app unless you comply with GPLv3 or have a Qt commercial license.
+MIT License - see [LICENSE](LICENSE) for details.
