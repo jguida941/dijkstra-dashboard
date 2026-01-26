@@ -11,7 +11,7 @@ Build custom graphs and watch Dijkstra's algorithm find the shortest path step-b
 
 ## Demo
 
-![Demo](https://github.com/user-attachments/assets/9d686b17-2bc3-4bba-b585-da475c1f99a7)
+![Demo](img/demo.mp4)
 
 
 
