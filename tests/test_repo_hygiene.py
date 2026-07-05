@@ -13,8 +13,12 @@ requires the workflow to invoke pytest (an empty/unrelated workflow no longer pa
 from __future__ import annotations
 
 import subprocess
-import tomllib
 from pathlib import Path
+
+try:
+    import tomllib  # Python 3.11+
+except ModuleNotFoundError:  # Python 3.10 — tomllib is stdlib only from 3.11
+    import tomli as tomllib
 
 ROOT = Path(__file__).resolve().parent.parent
 MAX_TRACKED_BYTES = 5 * 1024 * 1024  # 5 MB
