@@ -11,7 +11,8 @@ Build custom graphs and watch Dijkstra's algorithm find the shortest path step-b
 
 ## Demo
 
-![Demo](img/demo.mp4)
+> **Demo video:** the full walkthrough is attached to the GitHub [Releases](../../releases) page.
+> It is kept out of git history to avoid bloating every clone — see the screenshots below for a preview.
 
 
 
