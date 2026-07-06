@@ -53,7 +53,11 @@ def describe_step(step, label_of, algorithm):
         if node is None:
             # Bellman-Ford pass marker — no current node.
             return (f"— pass {payload.get('pass')} —", "muted")
-        return (f"Visit {label_of(node)} (d={_fmt(step.get('new_distance'))}).", "accent")
+        suffix = ""
+        if "f" in payload and "h" in payload:
+            # A* teaching payload: show the priority the selection used.
+            suffix = f", f={_fmt(payload['f'])}, h={_fmt(payload['h'])}"
+        return (f"Visit {label_of(node)} (d={_fmt(step.get('new_distance'))}{suffix}).", "accent")
 
     if kind == "relax":
         edge = step.get("edge")
@@ -117,7 +121,7 @@ def describe_summary(summary, label_of):
     path = summary.get("path") or ()
     if path:
         joined = " → ".join(label_of(node_id) for node_id in path)
-        lines.append((f"Path: {joined} (cost {_fmt(summary.get('distance'))})", "success"))
+        lines.append((f"Path: {joined} ({_cost_phrase(summary)})", "success"))
     else:
         lines.append(("No path found.", "error"))
 
@@ -136,16 +140,18 @@ def describe_summary(summary, label_of):
     return lines
 
 
-def _cost(summary) -> str:
+def _cost_phrase(summary) -> str:
+    """'cost 6' for weighted algorithms, '2 hops' for BFS (its distances are hops)."""
     distance = summary.get("distance")
-    if distance is None:
-        return "∞"
-    return _fmt(distance)
+    value = "∞" if distance is None else _fmt(distance)
+    if summary.get("algorithm") == "bfs":
+        return f"{value} hop" if value == "1" else f"{value} hops"
+    return f"cost {value}"
 
 
 def comparison_line(a, b, label_of) -> str:
-    """'Dijkstra: 5 visits, cost 6 | BFS: 5 visits, cost 2'."""
+    """'Dijkstra: 5 visits, cost 6 | BFS: 5 visits, 2 hops'."""
     return (
-        f"{_display(a.get('algorithm'))}: {a.get('visits')} visits, cost {_cost(a)} | "
-        f"{_display(b.get('algorithm'))}: {b.get('visits')} visits, cost {_cost(b)}"
+        f"{_display(a.get('algorithm'))}: {a.get('visits')} visits, {_cost_phrase(a)} | "
+        f"{_display(b.get('algorithm'))}: {b.get('visits')} visits, {_cost_phrase(b)}"
     )

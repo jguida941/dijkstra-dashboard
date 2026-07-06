@@ -16,6 +16,13 @@ from PyQt6.QtWidgets import QGraphicsItem, QGraphicsPathItem
 from dijkstra_dashboard.ui.theme import EDGE_STATE_ALIASES, EdgeStyle, current_theme
 
 
+def _format_weight(value):
+    """Trim integral floats for chip display: 5.0 → '5', 2.5 → '2.5'."""
+    if float(value).is_integer():
+        return str(int(value))
+    return f"{value:g}"
+
+
 class WeightChip(QGraphicsItem):
     def __init__(self, text, edge):
         super().__init__()
@@ -106,7 +113,7 @@ class GraphEdge(QGraphicsPathItem):
         self._arrow_paths: list[QPainterPath] = []
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
 
-        self.label = WeightChip(f"{weight}", self)
+        self.label = WeightChip(_format_weight(weight), self)
 
         self._apply_style(self._style)
         self.update_position()
@@ -268,7 +275,7 @@ class GraphEdge(QGraphicsPathItem):
 
     def set_weight(self, weight):
         self.weight = weight
-        self.label.set_text(f"{weight}")
+        self.label.set_text(_format_weight(weight))
         self.update_position()
 
     def _apply_style(self, style: EdgeStyle):

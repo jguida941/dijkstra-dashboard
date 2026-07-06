@@ -95,3 +95,21 @@ def test_edge_state_z_values_opacity_and_alias(qapp):
 
     edge.set_state("visited")
     assert edge._state == "relaxed"
+
+
+@pytest.mark.ui
+def test_weight_chip_trims_integral_floats(qapp):
+    scene = QGraphicsScene()
+    start = GraphNode("A")
+    end = GraphNode("B")
+    start.setPos(QPointF(0, 0))
+    end.setPos(QPointF(120, 0))
+    scene.addItem(start)
+    scene.addItem(end)
+
+    edge = GraphEdge(start, end, 5.0)
+    scene.addItem(edge)
+    assert edge.label._text == "5"
+
+    edge.set_weight(2.5)
+    assert edge.label._text == "2.5"

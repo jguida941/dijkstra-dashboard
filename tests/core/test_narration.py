@@ -162,7 +162,21 @@ def test_comparison_line_golden():
     a = {"algorithm": "dijkstra", "visits": 5, "distance": 6}
     b = {"algorithm": "bfs", "visits": 5, "distance": 2}
     assert comparison_line(a, b, _identity) == (
-        "Dijkstra: 5 visits, cost 6 | BFS: 5 visits, cost 2"
+        "Dijkstra: 5 visits, cost 6 | BFS: 5 visits, 2 hops"
+    )
+
+
+def test_describe_summary_bfs_uses_hops():
+    summary = {"algorithm": "bfs", "path": ("A", "B", "F"), "distance": 2,
+               "visits": 5, "relaxations": 5, "skips": 8, "comparisons": 13, "error": None}
+    assert describe_summary(summary, _identity)[0] == ("Path: A → B → F (2 hops)", "success")
+
+
+def test_describe_step_astar_visit_shows_f_and_h():
+    step = {"kind": "visit", "node": "C", "edge": None, "old_distance": None,
+            "new_distance": 3.0, "payload": {"h": 1.25, "f": 4.25}}
+    assert describe_step(step, _identity, "astar") == (
+        "Visit C (d=3, f=4.25, h=1.25).", "accent"
     )
 
 

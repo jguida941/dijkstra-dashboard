@@ -46,7 +46,7 @@ class InspectorPanel(QWidget):
         splitter.addWidget(self._section("Distances", self.table))
         splitter.addWidget(self._section("Pseudocode", self.pseudocode))
         splitter.addWidget(self._section("Narration", self.narration))
-        splitter.setSizes([400, 300, 400])
+        splitter.setSizes([340, 420, 380])
         layout.addWidget(splitter, stretch=1)
         self.splitter = splitter
 
@@ -81,6 +81,7 @@ class InspectorPanel(QWidget):
     def _rebuild_legend(self, theme):
         entries = (
             ("Current", theme.node_style("current").ring),
+            ("Frontier", theme.node_style("frontier").ring),
             ("Visited", theme.node_style("visited").ring),
             ("Final path", theme.node_style("final").ring),
             ("Not in path", theme.node_style("not_in_path").ring),
