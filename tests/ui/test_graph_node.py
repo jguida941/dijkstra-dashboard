@@ -84,3 +84,17 @@ def test_distance_badge_text_visibility_and_master_toggle(qapp):
 
     node.set_distance_text(None)
     assert not node.badge.isVisible()
+
+
+@pytest.mark.ui
+def test_ring_flash_temporarily_overrides_and_restores_state_ring(qapp):
+    node = GraphNode("A")
+    node.set_state("frontier")
+    state_ring = QColor(current_theme().node_style("frontier").ring)
+
+    node.set_ring_flash(current_theme().warning)
+    assert node.pen().color() == QColor(current_theme().warning)
+    assert node.pen().widthF() > current_theme().node_style("frontier").ring_width
+
+    node.set_ring_flash(None)
+    assert node.pen().color() == state_ring

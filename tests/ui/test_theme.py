@@ -48,6 +48,15 @@ def test_not_in_path_opacity_is_dimmed_in_all_themes():
 
 
 @pytest.mark.ui
+def test_neon_final_labels_match_path_cyan_and_non_path_labels_are_gray():
+    neon = ThemeManager.THEMES["neon-dark"]
+
+    assert neon.edge_styles["final"].label_fg == neon.edge_styles["final"].stroke
+    assert neon.edge_styles["not_in_path"].label_fg == "#929ba8"
+    assert neon.node_styles["not_in_path"].ring == "#46505f"
+
+
+@pytest.mark.ui
 def test_lerp_color_endpoints_and_midpoint_channels_include_alpha():
     start = QColor(0, 10, 20, 30)
     end = QColor(100, 110, 120, 130)

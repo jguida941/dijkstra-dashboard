@@ -853,6 +853,18 @@ class GraphView(QGraphicsView):
                     target_item = self.nodes.get(step.get("node"))
                     if target_item is not None:
                         self.animator.pop_scale(target_item, self.animator.scaled(220))
+                        # The bolt color briefly takes over the destination ring
+                        # at impact; permanent state color remains cyan/gray.
+                        def flash_ring(progress, node=target_item, warning=warning):
+                            if sip.isdeleted(node):
+                                return
+                            node.set_ring_flash(warning if 0.62 <= progress < 1.0 else None)
+
+                        self.animator.animate_color(
+                            ("node-ring-flash", id(target_item)),
+                            duration,
+                            flash_ring,
+                        )
 
     def _render_final_staggered(self, frame):
         final_node_ids = set(frame.path)
@@ -868,18 +880,13 @@ class GraphView(QGraphicsView):
             node_item.set_distance_text(format_distance(distance))
             node_item.set_badge_emphasis(False)
             if node_id not in final_node_ids:
-                node_item.set_state("unreachable" if distance == INF else "not_in_path")
+                node_item.set_state("not_in_path")
 
         # Non-path edges dim instantly; path edges wait for the stagger.
         for edge_item in self.edges.values():
             if edge_item in final_items:
                 continue
-            start_distance = frame.distances.get(edge_item.start_node.node_id, INF)
-            end_distance = frame.distances.get(edge_item.end_node.node_id, INF)
-            if start_distance == INF and end_distance == INF:
-                edge_item.set_state("unreachable")
-            else:
-                edge_item.set_state("not_in_path")
+            edge_item.set_state("not_in_path")
 
         # Stagger the path node/edge "final" reveal source -> target.
         callbacks = []
@@ -907,10 +914,9 @@ class GraphView(QGraphicsView):
             if frame.is_final and frame.path and node_id in frame.path:
                 state = "final"
             elif frame.is_final and frame.path:
-                # Two-tone final: explored nodes fade to the ghost tier; nodes
-                # the search never reached stay ambient (red is reserved for
-                # genuinely unreachable targets on path-less runs).
-                state = "not_in_path" if distance < INF else "default"
+                # Two-tone final: chosen path is bright cyan; everything else is
+                # neutral gray. Red is reserved for path-less unreachable runs.
+                state = "not_in_path"
             elif frame.is_final:
                 state = "unreachable" if distance == INF else "not_in_path"
             elif node_id == frame.current:
@@ -940,14 +946,12 @@ class GraphView(QGraphicsView):
 
         for edge_item in self.edges.values():
             if frame.is_final and frame.path:
-                # Two-tone final: edges the run touched fade to the ghost tier;
-                # untouched edges stay ambient.
+                # Two-tone final: chosen path is bright cyan; every other edge
+                # and weight label fades to neutral gray.
                 if edge_item in final_items:
                     state = "final"
-                elif edge_item in tree_items or edge_item in considered_items:
-                    state = "not_in_path"
                 else:
-                    state = "default"
+                    state = "not_in_path"
             elif frame.is_final:
                 start_distance = frame.distances.get(edge_item.start_node.node_id, INF)
                 end_distance = frame.distances.get(edge_item.end_node.node_id, INF)

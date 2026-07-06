@@ -73,7 +73,9 @@ def test_final_frame_highlights_path_nodes_and_edges(qapp):
     assert window.graph_view._edge_item_for("A", "C")._state == "final"
     assert window.graph_view._edge_item_for("C", "B")._state == "final"
     assert window.graph_view._edge_item_for("B", "F")._state == "final"
-    assert window.graph_view._edge_item_for("C", "D")._state == "not_in_path"
+    for edge_key, edge_item in window.graph_view.edges.items():
+        if edge_key not in {("A", "C"), ("B", "C"), ("B", "F")}:
+            assert edge_item._state == "not_in_path"
     window.close()
 
 

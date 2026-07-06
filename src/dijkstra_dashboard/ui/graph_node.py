@@ -24,6 +24,8 @@ class GraphNode(QGraphicsEllipseItem):
         self.node_id = node_id or name
         self.move_callback = move_callback
         self._state = "default"
+        self._style = current_theme().node_style("default")
+        self._ring_flash: str | None = None
         self._badge_text: str | None = None
         self._badge_master_visible = True
         self._badge_emphasis = False
@@ -153,10 +155,16 @@ class GraphNode(QGraphicsEllipseItem):
         self._badge_emphasis = bool(emphasized)
         self._apply_badge_brush()
 
+    def set_ring_flash(self, color: str | None):
+        """Temporarily override only the ring color during a relax hit."""
+        self._ring_flash = color
+        self._apply_ring_pen()
+
     def _apply_style(self, style: NodeStyle):
         theme = current_theme()
+        self._style = style
         self.setBrush(QBrush(QColor(style.fill)))
-        self.setPen(QPen(QColor(style.ring), style.ring_width))
+        self._apply_ring_pen()
         self.label.setBrush(QBrush(QColor(style.text)))
         self.setOpacity(style.opacity)
 
@@ -197,3 +205,9 @@ class GraphNode(QGraphicsEllipseItem):
         # wears — so "value just changed" reads as one continuous gesture.
         color = theme.warning if self._badge_emphasis else theme.muted_text
         self.badge.setBrush(QBrush(QColor(color)))
+
+    def _apply_ring_pen(self):
+        style = self._style
+        color = self._ring_flash or style.ring
+        width = style.ring_width + (1.0 if self._ring_flash else 0.0)
+        self.setPen(QPen(QColor(color), width))
