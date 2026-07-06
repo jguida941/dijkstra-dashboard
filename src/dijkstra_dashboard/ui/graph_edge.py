@@ -197,7 +197,9 @@ class GraphEdge(QGraphicsPathItem):
             self.label.setPos(label_x, label_y)
         else:
             # Fallback to straight line if nodes are too close
-            self.setPath(QPainterPath(QLineF(start_anchor, end_anchor)))
+            path = QPainterPath(start_anchor)
+            path.lineTo(end_anchor)
+            self.setPath(path)
             text_rect = self.label.boundingRect()
             label_x = mid.x() - text_rect.width() / 2
             label_y = mid.y() - text_rect.height() / 2
