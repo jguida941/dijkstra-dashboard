@@ -5,6 +5,7 @@ from PyQt6.QtGui import QBrush, QColor, QLinearGradient, QResizeEvent
 from .graph_node import GraphNode
 from .graph_edge import GraphEdge, WeightChip
 from .animations import AnimationCoordinator
+from .undo import GraphSnapshotCommand
 from .theme import current_theme, get_theme_manager
 from dijkstra_dashboard.core.graph import Graph
 import math
@@ -67,6 +68,15 @@ class GraphView(QGraphicsView):
         self.edges = {}
         self.graph = None
         self.pending_edge_start = None
+
+        # Undo/redo (Phase 7): the stack is injected by MainWindow; the view is
+        # constructible without one, and every mutation hook no-ops when it is
+        # None (keeps stack-free tests untouched). ``_pending_before`` holds the
+        # in-flight snapshot between _begin_mutation and _commit_mutation;
+        # ``_drag_node`` marks a plain-left drag that spans press -> release.
+        self.undo_stack = None
+        self._pending_before = None
+        self._drag_node = None
 
         get_theme_manager().theme_changed.connect(self._on_theme_changed)
 
@@ -227,6 +237,11 @@ class GraphView(QGraphicsView):
                 ):
                     self.handle_node_click(item)
                     return
+                # F8: a plain left press on a node (no modifiers, no pending
+                # edge-start) falls through to a real drag -- snapshot now;
+                # mouseReleaseEvent commits "Move node" iff it actually moved.
+                self._begin_mutation()
+                self._drag_node = item
             if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
                 if not isinstance(item, GraphNode):
                     self.add_node_at(event.position().toPoint())
@@ -238,6 +253,16 @@ class GraphView(QGraphicsView):
         if event.button() == Qt.MouseButton.RightButton:
             self.setDragMode(self.DragMode.NoDrag)
         super().mouseReleaseEvent(event)
+        if event.button() == Qt.MouseButton.LeftButton and self._drag_node is not None:
+            node = self._drag_node
+            self._drag_node = None
+            if self._drag_moved(node):
+                # ONE command per drag; F7: emit graph_changed exactly once here
+                # (a moved node invalidates a loaded run -- positions feed A*).
+                self._commit_mutation("Move node")
+                self.graph_changed.emit()
+            else:
+                self._drop_pending()
 
     def mouseDoubleClickEvent(self, event):
         item = self.itemAt(event.position().toPoint())
@@ -322,6 +347,10 @@ class GraphView(QGraphicsView):
     def set_graph(self, graph):
         self.graph = graph
         self.pending_edge_start = None
+        # Every node item is about to be rebuilt; forget any in-flight drag so a
+        # release can't commit against a deleted node. (_pending_before is left
+        # intact: several hooks call set_graph mid-mutation, then commit.)
+        self._drag_node = None
         self._clear_message()
 
         # Clear old scene. Flush pending tweens onto still-live items first so
@@ -402,10 +431,52 @@ class GraphView(QGraphicsView):
             return [(node.id, node.label) for node in self.graph.nodes()]
         return [(node_id, node.name) for node_id, node in self.nodes.items()]
 
+    # ------------------------------------------------------------------
+    # Undo/redo plumbing (Phase 7). A mutation hook captures a whole-graph
+    # snapshot with _begin_mutation, applies its change, then either commits
+    # (diff-guarded push) or drops the pending snapshot on any abort path.
+    # ------------------------------------------------------------------
+    def _begin_mutation(self):
+        self._pending_before = self.graph.to_dict() if self.graph is not None else None
+
+    def _commit_mutation(self, text):
+        before = self._pending_before
+        self._pending_before = None
+        if before is None or self.graph is None or self.undo_stack is None:
+            return
+        after = self.graph.to_dict()
+        if after == before:
+            # Silent no-op (cancelled dialog, rejected rename): keep it off the
+            # stack so undo never replays an unchanged snapshot.
+            return
+        self.undo_stack.push(
+            GraphSnapshotCommand(text, before, after, self._restore_snapshot)
+        )
+
+    def _drop_pending(self):
+        self._pending_before = None
+
+    def _restore_snapshot(self, snapshot):
+        # Rides the existing graph_changed pipeline (controller unload, combos
+        # repopulate, decorations/animations clear) for free.
+        self.set_graph(Graph.from_dict(snapshot))
+
+    def _drag_moved(self, node):
+        # A drag counts only if the node's live position differs from the
+        # position stored in the before-snapshot (a plain click never moves it).
+        if self._pending_before is None or self.graph is None or sip.isdeleted(node):
+            return False
+        stored = self._pending_before.get("nodes", {}).get(node.node_id)
+        if stored is None:
+            return False
+        pos = node.pos()
+        return pos.x() != stored.get("x") or pos.y() != stored.get("y")
+
     def add_node_at(self, view_pos):
         if not self.graph:
             return
         self._clear_message()
+        self._begin_mutation()
         scene_pos = self.mapToScene(view_pos)
 
         # Constrain new node position to scene bounds
@@ -421,6 +492,7 @@ class GraphView(QGraphicsView):
         self.nodes[node_id] = node_item
         self.scene.addItem(node_item)
         self.graph_changed.emit()
+        self._commit_mutation("Add node")
 
     def handle_node_click(self, node_item):
         node_id = node_item.node_id
@@ -446,6 +518,9 @@ class GraphView(QGraphicsView):
             2,
         )
         if ok:
+            # F8: snapshot wraps ONLY the accepted-dialog mutation; every error
+            # path below drops the pending snapshot.
+            self._begin_mutation()
             try:
                 self._clear_message()
                 updated = False
@@ -466,7 +541,9 @@ class GraphView(QGraphicsView):
                     f"{action} edge {start_label} {direction} {end_label} ({weight}).",
                     "text",
                 )
+                self._commit_mutation("Update edge" if updated else "Add edge")
             except Exception as exc:
+                self._drop_pending()
                 self.status_message.emit(str(exc), "error")
 
         self.pending_edge_start = None
@@ -527,11 +604,16 @@ class GraphView(QGraphicsView):
                     "error",
                 )
                 return
+        # Snapshot begins only past validation, so cancel / empty / duplicate
+        # rejections push nothing.
+        self._begin_mutation()
         try:
             self.graph.rename_node(node_item.node_id, label)
             node_item.set_label(label)
             self.graph_changed.emit()
+            self._commit_mutation("Rename node")
         except Exception as exc:
+            self._drop_pending()
             self.status_message.emit(str(exc), "error")
 
     def _edit_edge_weight(self, edge_item):
@@ -549,6 +631,7 @@ class GraphView(QGraphicsView):
         )
         if not ok:
             return
+        self._begin_mutation()
         try:
             if self.graph.directed and edge_item.bidirectional:
                 self.graph.update_edge(edge_item.start_node.node_id, edge_item.end_node.node_id, weight)
@@ -557,13 +640,16 @@ class GraphView(QGraphicsView):
                 self.graph.update_edge(edge_item.start_node.node_id, edge_item.end_node.node_id, weight)
             edge_item.set_weight(weight)
             self.graph_changed.emit()
+            self._commit_mutation("Edit weight")
         except Exception as exc:
+            self._drop_pending()
             self.status_message.emit(str(exc), "error")
 
     def _remove_node_item(self, node_item):
         if not self.graph:
             return
         self._clear_message()
+        self._begin_mutation()
         # Flush pending tweens onto still-live items before any removal.
         self.animator.cancel_all()
         node_id = node_item.node_id
@@ -574,6 +660,7 @@ class GraphView(QGraphicsView):
         try:
             self.graph.remove_node(node_id)
         except Exception as exc:
+            self._drop_pending()
             self.status_message.emit(str(exc), "error")
             return
         for edge_key in edges_to_remove:
@@ -588,11 +675,13 @@ class GraphView(QGraphicsView):
         if node_item.scene() is self.scene:
             self.scene.removeItem(node_item)
         self.graph_changed.emit()
+        self._commit_mutation("Delete node")
 
     def _remove_edge_item(self, edge_item):
         if not self.graph:
             return
         self._clear_message()
+        self._begin_mutation()
         self.animator.cancel_all()
         start_id = edge_item.start_node.node_id
         end_id = edge_item.end_node.node_id
@@ -603,6 +692,7 @@ class GraphView(QGraphicsView):
             else:
                 self.graph.remove_edge(start_id, end_id)
         except Exception as exc:
+            self._drop_pending()
             self.status_message.emit(str(exc), "error")
             return
         if edge_item.bidirectional and self.graph.directed:
@@ -613,11 +703,13 @@ class GraphView(QGraphicsView):
         if edge_item:
             edge_item.dispose()
         self.graph_changed.emit()
+        self._commit_mutation("Delete edge")
 
     def _delete_items(self, edges, nodes):
         if not self.graph:
             return
         self._clear_message()
+        self._begin_mutation()
         self.animator.cancel_all()
 
         # Remove edges first to avoid stale references during node deletion.
@@ -645,6 +737,8 @@ class GraphView(QGraphicsView):
 
         # Rebuild the scene once to avoid deleting items mid-paint.
         self.set_graph(self.graph)
+        # Diff-guarded: if every removal failed (nothing changed) nothing pushes.
+        self._commit_mutation("Delete selection")
 
     def _edge_key(self, start, end):
         if self.graph and not self.graph.directed:
@@ -858,6 +952,11 @@ class GraphView(QGraphicsView):
         if not targets:
             return
 
+        # One command per layout: snapshot before positions move, commit once the
+        # positions land (immediately for animate=False, in the finalize below for
+        # the tween). Diff-guarded, so a layout that changes nothing pushes nothing.
+        self._begin_mutation()
+
         if not animate:
             for node_id, (x, y) in targets.items():
                 item = self.nodes.get(node_id)
@@ -865,6 +964,7 @@ class GraphView(QGraphicsView):
                     item.setPos(QPointF(x, y))
             self.fit_to_content()
             self.graph_changed.emit()
+            self._commit_mutation("Apply layout")
             return
 
         starts = {}
@@ -888,6 +988,7 @@ class GraphView(QGraphicsView):
             # ``finished``), so the emit stays exactly-once per completed layout.
             self.fit_to_content()
             self.graph_changed.emit()
+            self._commit_mutation("Apply layout")
 
         anim = self.animator.animate_float("layout", 0.0, 1.0, duration, apply)
         anim.finished.connect(on_finished)

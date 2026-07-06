@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QH
                              QFileDialog, QMessageBox, QLabel, QComboBox, QSlider, QLineEdit,
                              QTextEdit, QPlainTextEdit, QAbstractSpinBox, QDialog)
 from PyQt6.QtCore import Qt, QSettings
-from PyQt6.QtGui import QAction, QActionGroup, QShortcut, QKeySequence
+from PyQt6.QtGui import QAction, QActionGroup, QShortcut, QKeySequence, QUndoStack
 from .graph_view import GraphView
 from .controls_panel import ControlsPanel
 from .inspector_panel import InspectorPanel
@@ -104,6 +104,11 @@ class MainWindow(QMainWindow):
 
         # Create and add graph view
         self.graph_view = GraphView()
+        # Undo/redo (Phase 7): one stack per window, injected into the view. Every
+        # editing mutation pushes a whole-graph snapshot command; document-replacing
+        # actions (New / Demo / Generate / Open) clear it instead.
+        self.undo_stack = QUndoStack(self)
+        self.graph_view.undo_stack = self.undo_stack
         left_layout.addWidget(self.graph_view)
 
         # Playback controller owns the trace + replay state; the view renders frames.
@@ -166,6 +171,12 @@ class MainWindow(QMainWindow):
         self._graph_version += 1
         self._header_written = False
         self.controls_panel.set_nodes(self.graph_view.get_node_items())
+        # F6: keep the Directed toggle in sync with the model so undo/redo of a
+        # directedness change restores the checkbox (blockSignals-guarded helper,
+        # so this never re-triggers on_directed_toggled).
+        graph = self.graph_view.get_graph()
+        if graph is not None:
+            self._set_directed_toggle(graph.directed)
         self.playback.unload()
         self.graph_view.clear_run_decorations()
         self.controls_panel.clear_timeline()
@@ -213,6 +224,17 @@ class MainWindow(QMainWindow):
         # SVG export needs QtSvg; disable the action when the import failed.
         export_svg_action.setEnabled(HAS_SVG)
         file_menu.addAction(export_svg_action)
+
+        # Edit menu sits between File and View. These are auto enable/disable +
+        # auto-labelled undo/redo actions with window-level Ctrl+Z / Ctrl+Y
+        # shortcuts; no Phase-4 focus guard is needed (no plain-key collision).
+        edit_menu = self.menuBar().addMenu("Edit")
+        undo_action = self.undo_stack.createUndoAction(self, "Undo")
+        undo_action.setShortcut(QKeySequence.StandardKey.Undo)
+        edit_menu.addAction(undo_action)
+        redo_action = self.undo_stack.createRedoAction(self, "Redo")
+        redo_action.setShortcut(QKeySequence.StandardKey.Redo)
+        edit_menu.addAction(redo_action)
 
         view_menu = self.menuBar().addMenu("View")
         theme_menu = view_menu.addMenu("Theme")
@@ -496,8 +518,13 @@ class MainWindow(QMainWindow):
         graph = self.graph_view.get_graph()
         if not graph:
             return
+        # Snapshot around the directedness change so undo restores the prior edge
+        # set + mode (and, via F6, the checkbox). Diff-guarded, so a no-op toggle
+        # pushes nothing.
+        self.graph_view._begin_mutation()
         graph.set_directed(bool(checked))
         self.graph_view.set_graph(graph)
+        self.graph_view._commit_mutation("Toggle directed")
         if self.inspector:
             if checked:
                 self.inspector.update_status(
@@ -565,6 +592,9 @@ class MainWindow(QMainWindow):
             return False
 
         self.graph_view.set_graph(graph)
+        # F9: fresh document -> the edit history no longer applies. Cleared only
+        # on this success path; a failed load (above) keeps history intact.
+        self.undo_stack.clear()
         self.controls_panel.set_nodes(self.graph_view.get_node_items())
         self._set_directed_toggle(graph.directed)
         self.graph_path = path
@@ -675,6 +705,7 @@ class MainWindow(QMainWindow):
         directed = self.controls_panel.directed_toggle.isChecked()
         graph = Graph(directed=directed)
         self.graph_view.set_graph(graph)
+        self.undo_stack.clear()  # F9: fresh document
         self.controls_panel.set_nodes(self.graph_view.get_node_items())
         self.graph_path = None
         if self.inspector:
@@ -685,6 +716,7 @@ class MainWindow(QMainWindow):
             return
         graph = default_demo_graph()
         self.graph_view.set_graph(graph)
+        self.undo_stack.clear()  # F9: fresh document
         self.controls_panel.set_nodes(self.graph_view.get_node_items())
         self._set_directed_toggle(graph.directed)
         self.graph_path = None
@@ -703,6 +735,7 @@ class MainWindow(QMainWindow):
             return
 
         self.graph_view.set_graph(graph)
+        self.undo_stack.clear()  # F9: fresh document
         self.controls_panel.set_nodes(self.graph_view.get_node_items())
         self._set_directed_toggle(graph.directed)
         self.graph_path = None
