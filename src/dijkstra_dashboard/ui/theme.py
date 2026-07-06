@@ -321,21 +321,23 @@ def _build_themes() -> dict[str, Theme]:
             font_pref=("Orbitron", "Arial"),
             glow_enabled=True,
             node_styles={
-                "default": NodeStyle(fill="#1e1e2e", ring="#4a4a66", ring_width=2, text="#e8e8f0"),
+                "default": NodeStyle(fill="#1e1e30", ring="#5c5c7a", ring_width=2, text="#e8e8f0"),
                 "frontier": NodeStyle(fill="#123a44", ring="#00e5ff", ring_width=2, text="#ffffff", glow="#5000e5ff"),
                 "current": NodeStyle(fill="#00e5ff", ring="#ffffff", ring_width=3, text="#001018", glow="#a000e5ff"),
-                "visited": NodeStyle(fill="#0e5566", ring="#00b8cc", ring_width=2.5, text="#dffbff", glow="#4000e5ff"),
+                "visited": NodeStyle(fill="#0d6d86", ring="#00e5ff", ring_width=3, text="#eaffff", glow="#6000e5ff"),
                 "final": NodeStyle(fill="#124a1a", ring="#39ff14", ring_width=3, text="#eaffe6", glow="#8039ff14"),
-                "not_in_path": NodeStyle(fill="#1e1e2e", ring="#4a4a66", ring_width=2, text="#e8e8f0", opacity=0.35),
-                "unreachable": NodeStyle(fill="#3a1020", ring="#ff2d55", ring_width=2, text="#ffb3c2"),
+                "not_in_path": NodeStyle(fill="#38101c", ring="#ff0044", ring_width=2, text="#ff9fb4", glow="#38ff0044", opacity=0.95),
+                "unreachable": NodeStyle(fill="#3a1020", ring="#ff2d55", ring_width=2.5, text="#ffb3c2", glow="#40ff2d55"),
             },
+            # Neon chips are BARE numbers (fully transparent pill) — the pill
+            # chrome only appears while a chip is selected.
             edge_styles={
-                "default": EdgeStyle(stroke="#3c3c50", width=2, label_fg="#b8b8cc", chip_bg="#e61a1a24", chip_border="#3c3c50", z=0),
-                "considered": EdgeStyle(stroke="#3f6a72", width=2, label_fg="#9fd7de", chip_bg="#e6142830", chip_border="#3f6a72", z=0.2),
-                "relaxed": EdgeStyle(stroke="#00e5ff", width=2.5, label_fg="#bff4fa", chip_bg="#e60e3038", chip_border="#00e5ff", halo="#4000e5ff", z=0.5),
-                "final": EdgeStyle(stroke="#39ff14", width=3.5, label_fg="#d8ffd0", chip_bg="#e60f2a12", chip_border="#39ff14", halo="#6039ff14", z=1),
-                "not_in_path": EdgeStyle(stroke="#2a2a38", width=1.5, label_fg="#666677", chip_bg="#e616161e", chip_border="#2a2a38", opacity=0.45, z=0),
-                "unreachable": EdgeStyle(stroke="#ff2d55", width=2, label_fg="#ffb3c2", chip_bg="#e62a0f18", chip_border="#ff2d55", z=0),
+                "default": EdgeStyle(stroke="#4a4a62", width=2, label_fg="#cfcfe0", chip_bg="#00000000", chip_border="#00000000", z=0),
+                "considered": EdgeStyle(stroke="#3f6a72", width=2, label_fg="#9fd7de", chip_bg="#00000000", chip_border="#00000000", z=0.2),
+                "relaxed": EdgeStyle(stroke="#00e5ff", width=3, label_fg="#aef4ff", chip_bg="#00000000", chip_border="#00000000", halo="#5500e5ff", z=0.5),
+                "final": EdgeStyle(stroke="#39ff14", width=3.5, label_fg="#b6ff9e", chip_bg="#00000000", chip_border="#00000000", halo="#6039ff14", z=1),
+                "not_in_path": EdgeStyle(stroke="#ff0044", width=2, label_fg="#ff4d6b", chip_bg="#00000000", chip_border="#00000000", opacity=0.9, z=0),
+                "unreachable": EdgeStyle(stroke="#ff2d55", width=2, label_fg="#ffb3c2", chip_bg="#00000000", chip_border="#00000000", z=0),
             },
         ),
         "midnight": Theme(

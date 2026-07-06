@@ -47,18 +47,26 @@ class WeightChip(QGraphicsItem):
             self._bounds = self._pill_rect.adjusted(-1.0, -1.0, 1.0, 1.0)
         return self._bounds
 
+    def _pill_visible(self) -> bool:
+        """A fully transparent chip style means bare-number rendering (the Neon
+        look); the pill chrome still appears while selected so selection reads."""
+        if self.isSelected():
+            return True
+        return QColor(self._style.chip_bg).alpha() > 0 or QColor(self._style.chip_border).alpha() > 0
+
     def paint(self, painter, option, widget=None):
         self.boundingRect()
         rect = self._pill_rect
         painter.setRenderHint(painter.RenderHint.Antialiasing, True)
         painter.setFont(self._font)
-        painter.setBrush(QBrush(QColor(self._style.chip_bg)))
 
-        if self.isSelected():
-            painter.setPen(QPen(QColor(self._accent), 1.8))
-        else:
-            painter.setPen(QPen(QColor(self._style.chip_border), 1.2))
-        painter.drawRoundedRect(rect, rect.height() / 2, rect.height() / 2)
+        if self._pill_visible():
+            painter.setBrush(QBrush(QColor(self._style.chip_bg)))
+            if self.isSelected():
+                painter.setPen(QPen(QColor(self._accent), 1.8))
+            else:
+                painter.setPen(QPen(QColor(self._style.chip_border), 1.2))
+            painter.drawRoundedRect(rect, rect.height() / 2, rect.height() / 2)
 
         painter.setPen(QPen(QColor(self._style.label_fg)))
         painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, self._text)

@@ -1,12 +1,14 @@
 from __future__ import annotations
 
-from PyQt6.QtCore import QEasingCurve, QPointF, QPropertyAnimation
+from PyQt6.QtCore import QEasingCurve, QPointF, QPropertyAnimation, Qt
 from PyQt6.QtGui import QBrush, QColor, QFont, QPen
 from PyQt6.QtWidgets import (
     QGraphicsDropShadowEffect,
     QGraphicsEllipseItem,
     QGraphicsItem,
     QGraphicsSimpleTextItem,
+    QStyle,
+    QStyleOptionGraphicsItem,
 )
 
 from dijkstra_dashboard.ui.theme import NODE_STATE_ALIASES, NodeStyle, current_theme
@@ -75,6 +77,22 @@ class GraphNode(QGraphicsEllipseItem):
             if self.move_callback is not None:
                 self.move_callback(self, value)
         return super().itemChange(change, value)
+
+    def boundingRect(self):
+        # Room for the custom selection ring drawn just outside the ellipse.
+        return super().boundingRect().adjusted(-6, -6, 6, 6)
+
+    def paint(self, painter, option, widget=None):
+        # Suppress Qt's dashed selection marquee (the "weird square") and draw
+        # a themed dashed ring instead.
+        opt = QStyleOptionGraphicsItem(option)
+        opt.state = opt.state & ~QStyle.StateFlag.State_Selected
+        super().paint(painter, opt, widget)
+        if option.state & QStyle.StateFlag.State_Selected:
+            painter.setRenderHint(painter.RenderHint.Antialiasing, True)
+            painter.setPen(QPen(QColor(current_theme().accent), 1.6, Qt.PenStyle.DashLine))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawEllipse(self.rect().adjusted(-4.0, -4.0, 4.0, 4.0))
 
     def set_state(self, state):
         resolved = self._resolve_state(state)
