@@ -123,11 +123,11 @@ class MainWindow(QMainWindow):
         if self.graph_view.get_graph():
             self._set_directed_toggle(self.graph_view.get_graph().directed)
         self.inspector.update_status(
-            "Shift+click empty space to add a node. "
-            "Ctrl/Option/Shift+click two nodes to add an edge weight. "
-            "Directed mode uses selection order for arrows. "
-            "Select a node/edge and press Delete to remove. "
-            "Right-drag to pan."
+            "Add node: Shift+click empty space\n"
+            "Add edge: Ctrl/Option/Shift+click two nodes\n"
+            "Directed arrows: selection order sets direction\n"
+            "Remove: select node/edge, press Delete\n"
+            "Pan: right-drag"
         )
 
         # Add panels to main layout

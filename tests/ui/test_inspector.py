@@ -38,6 +38,20 @@ def test_inspector_present_and_status_panel_gone(qapp):
     window.close()
 
 
+def test_startup_narration_help_is_scannable(qapp):
+    window = MainWindow()
+    lines = window.inspector.narration.toPlainText().strip().splitlines()
+
+    assert lines == [
+        "Add node: Shift+click empty space",
+        "Add edge: Ctrl/Option/Shift+click two nodes",
+        "Directed arrows: selection order sets direction",
+        "Remove: select node/edge, press Delete",
+        "Pan: right-drag",
+    ]
+    window.close()
+
+
 def test_table_start_row_shows_zero_and_current(qapp):
     window = MainWindow()
     _load(window)
