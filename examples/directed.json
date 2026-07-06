@@ -1,0 +1,61 @@
+{
+  "version": 1,
+  "directed": true,
+  "metadata": {
+    "name": "Directed sample"
+  },
+  "nodes": {
+    "S": {
+      "label": "S",
+      "x": -200,
+      "y": 0
+    },
+    "A": {
+      "label": "A",
+      "x": -50,
+      "y": -120
+    },
+    "B": {
+      "label": "B",
+      "x": -50,
+      "y": 120
+    },
+    "T": {
+      "label": "T",
+      "x": 200,
+      "y": 0
+    }
+  },
+  "edges": [
+    {
+      "id": "S->A",
+      "start": "S",
+      "end": "A",
+      "weight": 2
+    },
+    {
+      "id": "S->B",
+      "start": "S",
+      "end": "B",
+      "weight": 5
+    },
+    {
+      "id": "A->B",
+      "start": "A",
+      "end": "B",
+      "weight": 1
+    },
+    {
+      "id": "A->T",
+      "start": "A",
+      "end": "T",
+      "weight": 7
+    },
+    {
+      "id": "B->T",
+      "start": "B",
+      "end": "T",
+      "weight": 2
+    }
+  ]
+}

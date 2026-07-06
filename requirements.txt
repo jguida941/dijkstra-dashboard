@@ -1,0 +1,14 @@
+# Runtime dependencies. Source of truth: pyproject.toml [project].dependencies.
+# The application imports only PyQt6.QtCore / QtGui / QtWidgets.
+PyQt6>=6.4.0
+PyQt6-Qt6>=6.4.0
+PyQt6-sip>=13.4.0
+
+# Development dependencies are declared in pyproject.toml [project.optional-dependencies].dev
+# (pytest, pytest-qt, pytest-xvfb, pytest-cov, pytest-benchmark, hypothesis).
+# Install runtime + dev together with:
+#     pip install -e ".[dev]"
+#
+# Removed 2026-07-05 (governance pilot, finding F-DEP-1): numpy, matplotlib, networkx and
+# PyQt6-Charts were declared here but never imported anywhere in the source. black / pylint
+# are optional dev tools left to the developer's environment.

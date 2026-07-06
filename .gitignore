@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environment
+.venv/
+venv/
+env/
+.env/
+
+# Logs and temp files
+*.log
+*.tmp
+logs/
+
+# Editor/IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Build
+build/
+dist/
+*.egg-info/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local planning docs
+PLAN.md
+plan.md
+
+# Large media — keep out of git history (host in Releases / Git LFS / external link)
+*.mp4
+*.mov
+*.avi
