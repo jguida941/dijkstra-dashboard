@@ -458,7 +458,11 @@ class ThemeManager(QObject):
             data = config.resolve_config()
             theme_id = data.get("theme", "neon-dark")
         except Exception:
-            theme_id = "neon-dark"
+            # A corrupt/unreadable config file must not swallow the env override.
+            try:
+                theme_id = config.env_config().get("theme", "neon-dark")
+            except Exception:
+                theme_id = "neon-dark"
 
         resolved = _theme_id(theme_id)
         if resolved not in self.THEMES:

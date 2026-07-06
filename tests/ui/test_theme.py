@@ -132,6 +132,19 @@ def test_corrupt_config_file_falls_back_to_default(monkeypatch, tmp_path):
 
 
 @pytest.mark.ui
+def test_env_theme_override_survives_corrupt_config(monkeypatch, tmp_path):
+    config_path = tmp_path / "config.json"
+    config_path.write_text("{", encoding="utf-8")
+    monkeypatch.setenv("DIJKSTRA_DASHBOARD_CONFIG", str(config_path))
+    monkeypatch.setenv("DIJKSTRA_DASHBOARD_THEME", "paper-light")
+    manager = ThemeManager()
+
+    manager.load_from_config()
+
+    assert manager.current.id == "paper-light"
+
+
+@pytest.mark.ui
 def test_display_font_returns_requested_point_size(qapp):
     font = ThemeManager.THEMES["neon-dark"].display_font(13, QFont.Weight.Bold)
 

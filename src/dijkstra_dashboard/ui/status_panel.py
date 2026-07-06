@@ -42,18 +42,18 @@ class StatusPanel(QWidget):
 
     def resizeEvent(self, event: QResizeEvent):
         super().resizeEvent(event)
-        self._apply_scaled_fonts(event.size().width())
+        self._apply_scaled_fonts(event.size().width(), current_theme())
 
     def update_status(self, message, color="text"):
         self._log.append((message, color))
         if len(self._log) > self.MAX_LOG_LINES:
             del self._log[: -self.MAX_LOG_LINES]
-        self._write_line(message, color)
+        self._write_line(message, color, current_theme())
 
-    def _write_line(self, message, color):
+    def _write_line(self, message, color, theme):
         cursor = self.status_text.textCursor()
         text_format = QTextCharFormat()
-        text_format.setForeground(current_theme().color(color))
+        text_format.setForeground(theme.color(color))
         cursor.setCharFormat(text_format)
         cursor.insertText(message + "\n")
         self.status_text.setTextCursor(cursor)
@@ -65,12 +65,11 @@ class StatusPanel(QWidget):
 
     def refresh_theme(self, theme):
         self._rebuild_legend(theme)
-        width = self.width() or 300
-        self._apply_scaled_fonts(width)
+        self._apply_scaled_fonts(self.width() or 300, theme)
         # Replay scrollback so role colors re-resolve against the new theme.
         self.status_text.clear()
         for message, color in list(self._log):
-            self._write_line(message, color)
+            self._write_line(message, color, theme)
 
     def show_path(self, path, distance, visited_order, weight_lookup=None, label_lookup=None):
         self.clear()
@@ -108,8 +107,7 @@ class StatusPanel(QWidget):
             self.update_status(f"{current_label} → {next_label} ({weight})", "text")
         self.update_status(f"Total: {total}", "accent")
 
-    def _apply_scaled_fonts(self, width):
-        theme = current_theme()
+    def _apply_scaled_fonts(self, width, theme):
         scale = max(0.8, min(1.5, width / 300))
         title_size = int(self.base_title_size * scale)
         text_size = int(self.base_text_size * scale)

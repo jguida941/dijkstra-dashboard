@@ -25,6 +25,7 @@ class WeightChip(QGraphicsItem):
         self._accent = current_theme().accent
         self._font = current_theme().display_font(11, QFont.Weight.DemiBold)
         self._bounds: QRectF | None = None
+        self._pill_rect: QRectF | None = None
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         self.setZValue(3)
 
@@ -34,11 +35,14 @@ class WeightChip(QGraphicsItem):
             text_rect = metrics.tightBoundingRect(self._text or " ")
             width = max(1.0, text_rect.width()) + 16
             height = max(1.0, text_rect.height()) + 8
-            self._bounds = QRectF(-width / 2, -height / 2, width, height)
+            self._pill_rect = QRectF(-width / 2, -height / 2, width, height)
+            # Bounds include the border pen (max half-width 0.9) so paint stays inside them.
+            self._bounds = self._pill_rect.adjusted(-1.0, -1.0, 1.0, 1.0)
         return self._bounds
 
     def paint(self, painter, option, widget=None):
-        rect = self.boundingRect()
+        self.boundingRect()
+        rect = self._pill_rect
         painter.setRenderHint(painter.RenderHint.Antialiasing, True)
         painter.setFont(self._font)
         painter.setBrush(QBrush(QColor(self._style.chip_bg)))
@@ -59,6 +63,7 @@ class WeightChip(QGraphicsItem):
         self.prepareGeometryChange()
         self._text = text
         self._bounds = None
+        self._pill_rect = None
         self.update()
 
     def set_chip_style(self, style: EdgeStyle, accent: str):
@@ -71,6 +76,7 @@ class WeightChip(QGraphicsItem):
         theme = current_theme()
         self._font = theme.display_font(11, QFont.Weight.DemiBold)
         self._bounds = None
+        self._pill_rect = None
         self.set_chip_style(theme.edge_style(self.edge._state), theme.accent)
 
 
