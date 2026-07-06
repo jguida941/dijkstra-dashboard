@@ -108,7 +108,7 @@ class GraphNode(QGraphicsEllipseItem):
     def refresh_theme(self):
         theme = current_theme()
         self.label.setFont(theme.display_font(16, QFont.Weight.Bold))
-        self.badge.setFont(theme.display_font(9))
+        self.badge.setFont(theme.display_font(10, QFont.Weight.DemiBold))
         self._apply_badge_brush()
         self._apply_style(theme.node_style(self._state))
         self._recenter_label()
@@ -172,5 +172,7 @@ class GraphNode(QGraphicsEllipseItem):
 
     def _apply_badge_brush(self):
         theme = current_theme()
-        color = theme.accent if self._badge_emphasis else theme.muted_text
+        # Emphasis uses the warning color — the same yellow the travel bolt
+        # wears — so "value just changed" reads as one continuous gesture.
+        color = theme.warning if self._badge_emphasis else theme.muted_text
         self.badge.setBrush(QBrush(QColor(color)))

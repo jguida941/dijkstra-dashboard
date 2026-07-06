@@ -33,8 +33,16 @@ class WeightChip(QGraphicsItem):
         self._font = current_theme().display_font(11, QFont.Weight.DemiBold)
         self._bounds: QRectF | None = None
         self._pill_rect: QRectF | None = None
+        self._flash_color: str | None = None
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         self.setZValue(3)
+
+    def set_flash(self, color: str | None) -> None:
+        """Temporary label-color override (the travel effect passing by)."""
+        if color == self._flash_color:
+            return
+        self._flash_color = color
+        self.update()
 
     def boundingRect(self):
         if self._bounds is None:
@@ -68,7 +76,7 @@ class WeightChip(QGraphicsItem):
                 painter.setPen(QPen(QColor(self._style.chip_border), 1.2))
             painter.drawRoundedRect(rect, rect.height() / 2, rect.height() / 2)
 
-        painter.setPen(QPen(QColor(self._style.label_fg)))
+        painter.setPen(QPen(QColor(self._flash_color or self._style.label_fg)))
         painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, self._text)
 
     def set_text(self, text):

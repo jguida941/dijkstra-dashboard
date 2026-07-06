@@ -811,16 +811,29 @@ class GraphView(QGraphicsView):
                 item = self._edge_item_for(edge[0], edge[1])
                 if item is not None:
                     theme = current_theme()
-                    color = theme.edge_style("relaxed").stroke
+                    duration = self.animator.scaled(340)
                     if theme.glow_enabled:
-                        # Neon: a directional lightning bolt shoots source->target.
+                        # Neon: a warning-yellow lightning bolt shoots
+                        # source->target — contrast against the cyan edges makes
+                        # the direction unmistakable.
                         self.animator.lightning(
-                            self.scene, item.curve_path(), color, self.animator.scaled(340)
+                            self.scene, item.curve_path(), theme.warning, duration
                         )
                     else:
                         self.animator.travel_dot(
-                            self.scene, item.curve_path(), color, self.animator.scaled(320)
+                            self.scene, item.curve_path(),
+                            theme.edge_style("relaxed").stroke, duration
                         )
+                    # The weight number flashes the bolt color while it passes.
+                    chip = item.label
+                    warning = theme.warning
+
+                    def flash(progress, chip=chip, warning=warning):
+                        if sip.isdeleted(chip):
+                            return
+                        chip.set_flash(None if progress >= 1.0 else warning)
+
+                    self.animator.animate_color(("chip-flash", id(item)), duration, flash)
                     # Pop the destination so the receiving node reads instantly.
                     target_item = self.nodes.get(step.get("node"))
                     if target_item is not None:
@@ -879,7 +892,10 @@ class GraphView(QGraphicsView):
             if frame.is_final and frame.path and node_id in frame.path:
                 state = "final"
             elif frame.is_final and frame.path:
-                state = "not_in_path"
+                # Two-tone final: explored nodes fade to the ghost tier; nodes
+                # the search never reached stay ambient (red is reserved for
+                # genuinely unreachable targets on path-less runs).
+                state = "not_in_path" if distance < INF else "default"
             elif frame.is_final:
                 state = "unreachable" if distance == INF else "not_in_path"
             elif node_id == frame.current:
@@ -909,7 +925,14 @@ class GraphView(QGraphicsView):
 
         for edge_item in self.edges.values():
             if frame.is_final and frame.path:
-                state = "final" if edge_item in final_items else "not_in_path"
+                # Two-tone final: edges the run touched fade to the ghost tier;
+                # untouched edges stay ambient.
+                if edge_item in final_items:
+                    state = "final"
+                elif edge_item in tree_items or edge_item in considered_items:
+                    state = "not_in_path"
+                else:
+                    state = "default"
             elif frame.is_final:
                 start_distance = frame.distances.get(edge_item.start_node.node_id, INF)
                 end_distance = frame.distances.get(edge_item.end_node.node_id, INF)
