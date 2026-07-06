@@ -10,7 +10,7 @@ def test_main_window_boots_offscreen_with_notice_label_object_name(qapp):
     window = MainWindow()
 
     assert window.graph_view is not None
-    assert window.status_panel is not None
+    assert window.inspector is not None
     assert window.notice_label.objectName() == "noticeLabel"
 
     window.close()

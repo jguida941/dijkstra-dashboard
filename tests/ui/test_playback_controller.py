@@ -49,15 +49,20 @@ def test_load_run_emits_meta_and_initial_frame(qapp, sample_graph):
 
     assert controller.load_run(sample_graph, "dijkstra", {"start": "A", "target": "F"})
 
-    assert events["loaded"] == [
-        {
-            "algorithm": "dijkstra",
-            "start": "A",
-            "target": "F",
-            "total": expected_total,
-            "directed": False,
-        }
-    ]
+    # F4: the original meta keys survive as a subset; load_run additively appends
+    # "constraints" (and, for A*, an optional "heuristic_scale").
+    assert len(events["loaded"]) == 1
+    loaded = events["loaded"][0]
+    original = {
+        "algorithm": "dijkstra",
+        "start": "A",
+        "target": "F",
+        "total": expected_total,
+        "directed": False,
+    }
+    assert original.items() <= loaded.items()
+    assert loaded["constraints"] == {"non_negative": True}
+    assert "heuristic_scale" not in loaded
     frame = events["frames"][-1]
     assert frame.index == 0
     assert frame.total == expected_total

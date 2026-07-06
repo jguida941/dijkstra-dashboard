@@ -1,14 +1,18 @@
 import json
 
-from PyQt6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QFileDialog, QMessageBox, QLabel
-from PyQt6.QtGui import QAction, QActionGroup
+from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+                             QFileDialog, QMessageBox, QLabel, QComboBox, QSlider, QLineEdit,
+                             QTextEdit, QPlainTextEdit, QAbstractSpinBox)
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QAction, QActionGroup, QShortcut, QKeySequence
 from .graph_view import GraphView
 from .controls_panel import ControlsPanel
-from .status_panel import StatusPanel
+from .inspector_panel import InspectorPanel
+from .narration import DISPLAY_NAMES, comparison_line, describe_step, describe_summary, run_header
 from .playback_controller import PlaybackController
 from .theme import current_theme, get_theme_manager, make_app_icon
 from dijkstra_dashboard.core.graph import Graph
-from dijkstra_dashboard.core.algorithms import list_algorithm_specs
+from dijkstra_dashboard.core.algorithms import get_algorithm_class, list_algorithm_specs
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -16,6 +20,14 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Dijkstra Path Visualizer")
         self.setMinimumSize(1000, 700)
         self.graph_path = None
+
+        # Inspector wiring state (cached per run; never re-read the combo mid-run).
+        self._algo_class = None
+        self._algo_name = None
+        self._total_steps = 0
+        self._header_written = False
+        self._graph_version = 0
+        self._summaries = {}
 
         # Create central widget and layout
         central_widget = QWidget()
@@ -39,9 +51,9 @@ class MainWindow(QMainWindow):
         right_panel = QWidget()
         right_layout = QVBoxLayout(right_panel)
 
-        # Create and add status panel
-        self.status_panel = StatusPanel()
-        right_layout.addWidget(self.status_panel)
+        # Create and add the educational inspector (distances + pseudocode + narration)
+        self.inspector = InspectorPanel()
+        right_layout.addWidget(self.inspector)
 
         # Create and add graph view
         self.graph_view = GraphView()
@@ -51,12 +63,13 @@ class MainWindow(QMainWindow):
         self.playback = PlaybackController(parent=self)
 
         self.controls_panel.set_algorithms(
-            [(spec.name, spec.name.capitalize()) for spec in list_algorithm_specs()]
+            [(spec.name, DISPLAY_NAMES.get(spec.name, spec.name.capitalize()))
+             for spec in list_algorithm_specs()]
         )
         self.controls_panel.set_nodes(self.graph_view.get_node_items())
         if self.graph_view.get_graph():
             self._set_directed_toggle(self.graph_view.get_graph().directed)
-        self.status_panel.update_status(
+        self.inspector.update_status(
             "Shift+click empty space to add a node. "
             "Ctrl/Option/Shift+click two nodes to add an edge weight. "
             "Directed mode uses selection order for arrows. "
@@ -70,6 +83,7 @@ class MainWindow(QMainWindow):
 
         # Menu actions
         self.setup_menus()
+        self._setup_shortcuts()
 
         # Connect signals
         self.controls_panel.run_button.clicked.connect(self.start_visualization)
@@ -83,7 +97,7 @@ class MainWindow(QMainWindow):
         self.controls_panel.directed_toggle.toggled.connect(self.on_directed_toggled)
         self.graph_view.graph_changed.connect(self.on_graph_changed)
         self.graph_view.message_changed.connect(self.on_message_changed)
-        self.graph_view.status_message.connect(self.status_panel.update_status)
+        self.graph_view.status_message.connect(self.inspector.update_status)
 
         # Playback controller drives all run rendering / status.
         self.playback.run_loaded.connect(self.on_run_loaded)
@@ -94,7 +108,7 @@ class MainWindow(QMainWindow):
 
         manager = get_theme_manager()
         manager.theme_changed.connect(self.apply_theme)
-        manager.theme_changed.connect(self.status_panel.refresh_theme)
+        manager.theme_changed.connect(self.inspector.refresh_theme)
         self.apply_theme(current_theme())
 
         self.on_speed_changed(self.controls_panel.speed_slider.value())
@@ -102,6 +116,8 @@ class MainWindow(QMainWindow):
     def on_graph_changed(self):
         # Every mutation path emits graph_changed exactly once (F5). The handler
         # must be idempotent and cheap (F6): drop the stale run and reset the view.
+        self._graph_version += 1
+        self._header_written = False
         self.controls_panel.set_nodes(self.graph_view.get_node_items())
         self.playback.unload()
         self.graph_view.clear_run_decorations()
@@ -175,6 +191,13 @@ class MainWindow(QMainWindow):
         fit_action.triggered.connect(self.graph_view.fit_to_content)
         view_menu.addAction(fit_action)
 
+        view_menu.addSeparator()
+        self.show_labels_action = QAction("Show Distance Labels", self)
+        self.show_labels_action.setCheckable(True)
+        self.show_labels_action.setChecked(True)
+        self.show_labels_action.toggled.connect(self.graph_view.set_badges_visible)
+        view_menu.addAction(self.show_labels_action)
+
         help_menu = self.menuBar().addMenu("Help")
         controls_action = QAction("Controls...", self)
         controls_action.triggered.connect(self.show_controls_help)
@@ -193,25 +216,59 @@ class MainWindow(QMainWindow):
             action.setChecked(theme_id == theme.id)
             action.blockSignals(blocked)
 
-    def _disambiguated_labels(self, graph, start_node, target_node):
-        label_counts: dict[str, int] = {}
-        for node in graph.nodes():
-            label_counts[node.label] = label_counts.get(node.label, 0) + 1
-        start_label = graph.get_node_label(start_node)
-        target_label = graph.get_node_label(target_node)
-        if label_counts.get(start_label, 0) > 1:
-            start_label = f"{start_label} ({start_node})"
-        if label_counts.get(target_label, 0) > 1:
-            target_label = f"{target_label} ({target_node})"
-        return start_label, target_label
-
-    def _announce_run(self, graph, start_node, target_node, algorithm_name):
-        start_label, target_label = self._disambiguated_labels(graph, start_node, target_node)
-        algo_display = self.controls_panel.algorithm_combo.currentText() or algorithm_name
-        self.status_panel.clear()
-        self.status_panel.update_status(
-            f"Running {algo_display} from {start_label} to {target_label}"
+    def _setup_shortcuts(self):
+        # WindowShortcut transport controls; guards inside each handler bail when
+        # an editable widget (combo/slider/line/text/spin) holds focus (F11).
+        bindings = (
+            (Qt.Key.Key_Space, self._sc_toggle),
+            (Qt.Key.Key_Left, self._sc_back),
+            (Qt.Key.Key_Right, self._sc_forward),
+            (Qt.Key.Key_Home, self._sc_home),
+            (Qt.Key.Key_End, self._sc_end),
         )
+        self._shortcuts = []
+        for key, handler in bindings:
+            shortcut = QShortcut(QKeySequence(key), self)
+            shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
+            shortcut.activated.connect(handler)
+            self._shortcuts.append(shortcut)
+
+    def _editing_focus(self):
+        editable = (QComboBox, QSlider, QLineEdit, QTextEdit, QPlainTextEdit, QAbstractSpinBox)
+        widget = QApplication.focusWidget()
+        while widget is not None:
+            if isinstance(widget, editable):
+                return True
+            widget = widget.parentWidget()
+        return False
+
+    def _sc_toggle(self):
+        if self._editing_focus():
+            return
+        self.toggle_playback()
+
+    def _sc_forward(self):
+        if self._editing_focus():
+            return
+        self.step_visualization()
+
+    def _sc_back(self):
+        if self._editing_focus():
+            return
+        if self.playback.is_loaded:
+            self.step_back()
+
+    def _sc_home(self):
+        if self._editing_focus():
+            return
+        if self.playback.is_loaded:
+            self.playback.seek(0)
+
+    def _sc_end(self):
+        if self._editing_focus():
+            return
+        if self.playback.is_loaded:
+            self.playback.seek(self.playback.total)
 
     def _load_run(self):
         """Load the current graph/params into the controller. Returns True on load."""
@@ -221,11 +278,14 @@ class MainWindow(QMainWindow):
         if graph is None:
             return False
         algorithm_name = self.controls_panel.get_algorithm_name()
+        # F5: clear the inspector BEFORE loading; the run header is written from
+        # on_run_loaded once the controller emits meta.
+        self._header_written = False
+        self.inspector.clear_all()
         if not self.playback.load_run(
             graph, algorithm_name, {"start": start_node, "target": target_node}
         ):
             return False
-        self._announce_run(graph, start_node, target_node, algorithm_name)
         return True
 
     def _ensure_loaded(self):
@@ -254,7 +314,10 @@ class MainWindow(QMainWindow):
         self.playback.unload()
         self.graph_view.clear_run_decorations()
         self.controls_panel.clear_timeline()
-        self.status_panel.clear()
+        self.inspector.clear_all()
+        self._header_written = False
+        self._algo_class = None
+        self._algo_name = None
         self.controls_panel.play_button.setText("Play")
 
     def on_speed_changed(self, value):
@@ -268,36 +331,79 @@ class MainWindow(QMainWindow):
     def on_run_loaded(self, meta):
         self.controls_panel.set_timeline(meta["total"])
 
+        algorithm_name = meta["algorithm"]
+        self._algo_name = algorithm_name
+        # Cache the running algorithm CLASS; never re-read the combo mid-run (trap 3).
+        self._algo_class = get_algorithm_class(algorithm_name)
+        self._total_steps = meta["total"]
+        label_of = self.graph_view.label_lookup
+
+        graph = self.graph_view.get_graph()
+        node_ids = graph.get_nodes() if graph is not None else []
+        self.inspector.table.set_nodes(node_ids, label_of)
+        self.inspector.table.set_distance_header(algorithm_name)
+
+        display = DISPLAY_NAMES.get(algorithm_name, algorithm_name)
+        self.inspector.pseudocode.set_algorithm(display, list(self._algo_class.pseudocode))
+
+        self.inspector.narration.append_line(run_header(meta, label_of), "accent")
+        self._header_written = True
+
+        if meta["total"] > 10_000:
+            self.inspector.narration.append_line(
+                f"Large run ({meta['total']} steps) — narration only for manual steps; "
+                "use the timeline.",
+                "muted",
+            )
+
     def on_frame_changed(self, frame):
         self.graph_view.render_frame(frame)
         self.controls_panel.set_timeline_index(frame.index)
+
+        label_of = self.graph_view.label_lookup
+        self.inspector.table.render_frame(frame, label_of)
+
+        if frame.step is not None and self._algo_class is not None:
+            self.inspector.pseudocode.highlight_step(self._algo_class.lines_for_step(frame.step))
+        else:
+            self.inspector.pseudocode.highlight_step([])
+
+        if frame.forward_step:
+            # F6: runs over 10k steps skip ALL per-step narration (manual + autoplay).
+            if self._total_steps <= 10_000 and frame.step is not None:
+                sentence, role = describe_step(frame.step, label_of, self._algo_name)
+                self.inspector.narration.append_line(sentence, role)
+        elif frame.index > 0 and self._header_written:
+            # F5: no jump marker for the initial load frame (index 0) or before a header.
+            self.inspector.narration.append_jump_marker(frame.index)
 
     def on_playing_changed(self, playing):
         self.controls_panel.play_button.setText("Pause" if playing else "Play")
 
     def on_run_error(self, message):
-        self.status_panel.update_status(message, "error")
+        self.inspector.update_status(message, "error")
         self.on_message_changed(message)
 
     def on_run_finished(self, summary):
-        path = summary.get("path")
-        if path:
-            self.status_panel.show_path(
-                list(path),
-                summary.get("distance"),
-                list(summary.get("visited_order", ())),
-                self.graph_view.get_edge_weight,
-                self.graph_view.label_lookup,
-            )
-            self.status_panel.update_status(
-                f"Visits: {summary['visits']} · "
-                f"Relaxations: {summary['relaxations']} · "
-                f"Comparisons: {summary['comparisons']}",
-                "text",
-            )
-        else:
+        label_of = self.graph_view.label_lookup
+        for text, role in describe_summary(summary, label_of):
+            self.inspector.narration.append_line(text, role)
+        if not summary.get("path"):
             self.on_message_changed("No path found.")
-            self.status_panel.update_status("No path found.", "error")
+
+        # Cross-algorithm comparison for the same graph/start/target key.
+        key = (self._graph_version, summary.get("start"), summary.get("target"))
+        algorithm = summary.get("algorithm")
+        bucket = self._summaries.setdefault(key, {})
+        previous = None
+        for other_algo, other_summary in bucket.items():
+            if other_algo != algorithm:
+                previous = other_summary
+        bucket[algorithm] = summary
+        if previous is not None:
+            self.inspector.narration.append_line(
+                comparison_line(summary, previous, label_of), "muted"
+            )
 
     def on_directed_toggled(self, checked):
         graph = self.graph_view.get_graph()
@@ -305,13 +411,13 @@ class MainWindow(QMainWindow):
             return
         graph.set_directed(bool(checked))
         self.graph_view.set_graph(graph)
-        if self.status_panel:
+        if self.inspector:
             if checked:
-                self.status_panel.update_status(
+                self.inspector.update_status(
                     "Directed mode enabled (edges use node order; add reverse edges if needed)."
                 )
             else:
-                self.status_panel.update_status("Undirected mode enabled (one weight per edge).")
+                self.inspector.update_status("Undirected mode enabled (one weight per edge).")
 
     def show_controls_help(self):
         QMessageBox.information(
@@ -331,12 +437,16 @@ class MainWindow(QMainWindow):
             "- Zoom: use +/- buttons or 100%\n\n"
             "Playback:\n"
             "- Algorithm selector: choose which algorithm to replay\n"
-            "- Run Visualization: reload the trace and play from the start\n"
+            "- Run: reload the trace and play from the start\n"
             "- Step: advance one step (loads the run if needed)\n"
-            "- Step Back: rewind one step\n"
+            "- ⏮ Back: rewind one step\n"
             "- Play/Pause: toggle playback\n"
             "- Timeline scrubber: drag to jump to any step\n"
-            "- Speed slider: adjust playback speed",
+            "- Speed slider: adjust playback speed\n\n"
+            "Keyboard shortcuts:\n"
+            "- Space: play/pause\n"
+            "- Left / Right: step back / forward\n"
+            "- Home / End: jump to the start / final step",
         )
 
     def open_graph(self):
@@ -361,8 +471,8 @@ class MainWindow(QMainWindow):
         self.controls_panel.set_nodes(self.graph_view.get_node_items())
         self._set_directed_toggle(graph.directed)
         self.graph_path = path
-        if self.status_panel:
-            self.status_panel.update_status(f"Loaded graph: {path}")
+        if self.inspector:
+            self.inspector.update_status(f"Loaded graph: {path}")
 
     def save_graph(self):
         if not self.graph_path:
@@ -399,5 +509,5 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Save Error", str(exc))
             return
 
-        if self.status_panel:
-            self.status_panel.update_status(f"Saved graph: {path}")
+        if self.inspector:
+            self.inspector.update_status(f"Saved graph: {path}")

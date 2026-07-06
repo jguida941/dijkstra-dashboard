@@ -96,15 +96,22 @@ class PlaybackController(QObject):
         self._index = 0
         self._finished_emitted = False
 
-        self.run_loaded.emit(
-            {
-                "algorithm": algorithm_name,
-                "start": start,
-                "target": target,
-                "total": self.total,
-                "directed": self._directed,
-            }
-        )
+        meta = {
+            "algorithm": algorithm_name,
+            "start": start,
+            "target": target,
+            "total": self.total,
+            "directed": self._directed,
+            "constraints": dict(algorithm.spec.constraints),
+        }
+        # Additive: surface the A* heuristic scale carried on the final step.
+        if steps:
+            last = steps[-1]
+            if last.get("kind") == "final":
+                payload = last.get("payload") or {}
+                if "heuristic_scale" in payload:
+                    meta["heuristic_scale"] = payload["heuristic_scale"]
+        self.run_loaded.emit(meta)
         self.frame_changed.emit(self._make_frame(forward_step=False))
         return True
 

@@ -164,7 +164,7 @@ def test_run_button_end_to_end_reaches_finish(qapp, qtbot):
         qtbot.mouseClick(window.controls_panel.run_button, Qt.MouseButton.LeftButton)
 
     assert blocker.args[0]["path"] == ("A", "C", "B", "F")
-    assert window.status_panel.status_text.toPlainText() != ""
+    assert window.inspector.narration.toPlainText() != ""
     window.close()
 
 
