@@ -24,13 +24,16 @@ def _format_weight(value):
 
 
 class WeightChip(QGraphicsItem):
+    BASE_FONT_SIZE = 11
+
     def __init__(self, text, edge):
         super().__init__()
         self.edge = edge
         self._text = str(text)
         self._style = current_theme().edge_style("default")
         self._accent = current_theme().accent
-        self._font = current_theme().display_font(11, QFont.Weight.DemiBold)
+        self._font_scale = 1.0
+        self._font = current_theme().display_font(self.BASE_FONT_SIZE, QFont.Weight.DemiBold)
         self._bounds: QRectF | None = None
         self._pill_rect: QRectF | None = None
         self._flash_color: str | None = None
@@ -97,10 +100,23 @@ class WeightChip(QGraphicsItem):
     def refresh_theme(self):
         self.prepareGeometryChange()
         theme = current_theme()
-        self._font = theme.display_font(11, QFont.Weight.DemiBold)
+        self._font = theme.display_font(round(self.BASE_FONT_SIZE * self._font_scale), QFont.Weight.DemiBold)
         self._bounds = None
         self._pill_rect = None
         self.set_chip_style(theme.edge_style(self.edge._state), theme.accent)
+
+    def set_font_scale(self, scale):
+        scale = max(1.0, min(1.6, float(scale)))
+        if abs(scale - self._font_scale) < 0.01:
+            return
+        self.prepareGeometryChange()
+        self._font_scale = scale
+        self._font = current_theme().display_font(
+            round(self.BASE_FONT_SIZE * self._font_scale), QFont.Weight.DemiBold
+        )
+        self._bounds = None
+        self._pill_rect = None
+        self.update()
 
 
 class GraphEdge(QGraphicsPathItem):
@@ -287,6 +303,10 @@ class GraphEdge(QGraphicsPathItem):
         self._style = current_theme().edge_style(self._state)
         self.label.refresh_theme()
         self._apply_style(self._style)
+        self.update_position()
+
+    def set_label_scale(self, scale):
+        self.label.set_font_scale(scale)
         self.update_position()
 
     def set_weight(self, weight):

@@ -20,6 +20,7 @@ class InspectorPanel(QWidget):
         super().__init__()
         self.base_title_size = 14
         self.base_text_size = 10
+        self._font_scale = 1.0
 
         self.table = DistanceTable()
         self.pseudocode = PseudocodePanel()
@@ -72,11 +73,30 @@ class InspectorPanel(QWidget):
 
     def refresh_theme(self, theme):
         self._rebuild_legend(theme)
-        self.title.setFont(theme.display_font(self.base_title_size, QFont.Weight.Bold))
-        self.legend.setFont(theme.display_font(self.base_text_size))
         self.table.refresh_theme(theme)
         self.pseudocode.refresh_theme(theme)
         self.narration.refresh_theme(theme)
+        self._apply_fonts(theme)
+
+    def set_font_scale(self, scale):
+        """Scale inspector typography with the window (clamped 1.0-1.6)."""
+        scale = max(1.0, min(1.6, float(scale)))
+        if abs(scale - self._font_scale) < 0.01:
+            return
+        self._font_scale = scale
+        self._apply_fonts(current_theme())
+
+    def _apply_fonts(self, theme):
+        s = self._font_scale
+        self.title.setFont(theme.display_font(round(self.base_title_size * s), QFont.Weight.Bold))
+        self.legend.setFont(theme.display_font(round(self.base_text_size * s)))
+        for panel in (self.table, self.narration):
+            font = panel.font()
+            font.setPointSize(round(self.base_text_size * s))
+            panel.setFont(font)
+        mono = self.pseudocode.font()
+        mono.setPointSize(round(self.base_text_size * s))
+        self.pseudocode.setFont(mono)
 
     def clear_run_views(self):
         """Drop run-specific content when the graph changes: stale table rows

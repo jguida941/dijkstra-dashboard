@@ -245,3 +245,27 @@ def test_graph_change_clears_stale_table_rows(qapp):
 
     assert window.inspector.table.rowCount() == 0
     window.close()
+
+
+@pytest.mark.ui
+def test_inspector_fonts_scale_with_window(qapp, qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.show()
+    qtbot.waitExposed(window)
+    qapp.processEvents()
+
+    node = window.graph_view.nodes["A"]
+    edge = window.graph_view.edges[("A", "B")]
+    base_narration = window.inspector.narration.font().pointSize()
+    base_badge = node.badge.font().pointSize()
+    base_edge_label = edge.label._font.pointSize()
+
+    window.resize(1800, 950)
+    qapp.processEvents()
+
+    assert window.inspector.narration.font().pointSize() > base_narration
+    assert node.badge.font().pointSize() > base_badge
+    assert edge.label._font.pointSize() > base_edge_label
+    assert window.inspector.table.font().pointSize() > 0
+    window.close()

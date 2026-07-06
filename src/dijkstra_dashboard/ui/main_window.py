@@ -189,6 +189,15 @@ class MainWindow(QMainWindow):
         toggle.setChecked(bool(value))
         toggle.blockSignals(blocked)
 
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        # Explanatory text tracks the window size (clamped by each component).
+        scale = event.size().width() / 1280.0
+        if hasattr(self, "inspector"):
+            self.inspector.set_font_scale(scale)
+        if hasattr(self, "graph_view"):
+            self.graph_view.set_label_scale(scale)
+
     def on_message_changed(self, message):
         message = message.strip()
         if message:

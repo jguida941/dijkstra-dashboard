@@ -15,6 +15,9 @@ from dijkstra_dashboard.ui.theme import NODE_STATE_ALIASES, NodeStyle, current_t
 
 
 class GraphNode(QGraphicsEllipseItem):
+    BASE_LABEL_SIZE = 16
+    BASE_BADGE_SIZE = 10
+
     def __init__(self, name, node_id=None, move_callback=None):
         super().__init__(-20, -20, 40, 40)
         self.name = name
@@ -24,6 +27,7 @@ class GraphNode(QGraphicsEllipseItem):
         self._badge_text: str | None = None
         self._badge_master_visible = True
         self._badge_emphasis = False
+        self._font_scale = 1.0
 
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
@@ -107,13 +111,30 @@ class GraphNode(QGraphicsEllipseItem):
 
     def refresh_theme(self):
         theme = current_theme()
-        self.label.setFont(theme.display_font(16, QFont.Weight.Bold))
-        self.badge.setFont(theme.display_font(10, QFont.Weight.DemiBold))
+        self._apply_fonts(theme)
         self._apply_badge_brush()
         self._apply_style(theme.node_style(self._state))
         self._recenter_label()
         self._recenter_badge()
         self._sync_pulse()
+
+    def set_font_scale(self, scale):
+        scale = max(1.0, min(1.6, float(scale)))
+        if abs(scale - self._font_scale) < 0.01:
+            return
+        self._font_scale = scale
+        self._apply_fonts(current_theme())
+        self._recenter_label()
+        self._recenter_badge()
+        self.update()
+
+    def _apply_fonts(self, theme):
+        self.label.setFont(
+            theme.display_font(round(self.BASE_LABEL_SIZE * self._font_scale), QFont.Weight.Bold)
+        )
+        self.badge.setFont(
+            theme.display_font(round(self.BASE_BADGE_SIZE * self._font_scale), QFont.Weight.DemiBold)
+        )
 
     def stop_pulse(self):
         self.pulse_animation.stop()

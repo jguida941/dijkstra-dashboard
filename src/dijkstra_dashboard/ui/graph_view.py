@@ -59,6 +59,7 @@ class GraphView(QGraphicsView):
         # Zoom settings
         self.zoom_level = 1.0
         self.zoom_step = 0.2  # 20% zoom step
+        self._label_scale = 1.0
 
         # Create zoom controls
         self.create_zoom_controls()
@@ -82,6 +83,19 @@ class GraphView(QGraphicsView):
 
         # Setup the graph
         self.setup_graph()
+
+    def set_label_scale(self, scale):
+        scale = max(1.0, min(1.6, float(scale)))
+        if abs(scale - self._label_scale) < 0.01:
+            return
+        self._label_scale = scale
+        self._apply_label_scale()
+
+    def _apply_label_scale(self):
+        for node in self.nodes.values():
+            node.set_font_scale(self._label_scale)
+        for edge in self.edges.values():
+            edge.set_label_scale(self._label_scale)
 
     def create_zoom_controls(self):
         # Create a container widget for zoom controls
@@ -423,6 +437,7 @@ class GraphView(QGraphicsView):
                 self.edges[self._edge_key(edge.start, edge.end)] = edge_item
                 self.scene.addItem(edge_item)
 
+        self._apply_label_scale()
         self.graph_changed.emit()
         self.fit_to_content()
 
