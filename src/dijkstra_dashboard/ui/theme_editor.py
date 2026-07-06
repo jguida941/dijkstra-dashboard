@@ -17,6 +17,7 @@ from PyQt6.QtGui import QColor, QRegularExpressionValidator
 from PyQt6.QtWidgets import (
     QCheckBox,
     QColorDialog,
+    QComboBox,
     QDialog,
     QDoubleSpinBox,
     QFormLayout,
@@ -34,8 +35,10 @@ from PyQt6.QtWidgets import (
 
 from .theme import (
     EDGE_STATES,
+    FINAL_REVEALS,
     NODE_STATES,
     PREVIEW_THEME_ID,
+    RELAX_EFFECTS,
     current_theme,
     get_theme_manager,
     theme_from_dict,
@@ -157,6 +160,7 @@ class ThemeEditorDialog(QDialog):
         # Per-path widget registries so reset/refresh can repaint every control.
         self._color_rows: dict[tuple, _ColorRow] = {}
         self._spins: dict[tuple, QDoubleSpinBox] = {}
+        self._combos: dict[tuple, QComboBox] = {}
         self._none_checks: dict[tuple, QCheckBox] = {}
         self._glow_enabled_check: QCheckBox | None = None
 
@@ -370,18 +374,58 @@ class ThemeEditorDialog(QDialog):
     def _build_effects_page(self):
         page = QWidget()
         layout = QVBoxLayout(page)
+
+        glow_group = QGroupBox("Glow")
+        glow_layout = QFormLayout(glow_group)
         self._glow_enabled_check = QCheckBox("Enable glow effects")
         self._glow_enabled_check.toggled.connect(
             lambda checked: self._set_value(("glow_enabled",), bool(checked))
         )
-        layout.addWidget(self._glow_enabled_check)
+        glow_layout.addRow("Enabled", self._glow_enabled_check)
         explain = QLabel(
-            "Gates node glow, the current-node pulse, and the final-path lightning. "
-            "Per-state glow/halo colors still apply per node and edge above."
+            "Gates node glow and the current-node pulse. Per-state glow/halo "
+            "colors still apply per node and edge above."
         )
         explain.setWordWrap(True)
         explain.setEnabled(False)
-        layout.addWidget(explain)
+        glow_layout.addRow(explain)
+        layout.addWidget(glow_group)
+
+        animation_group = QGroupBox("Graph animations")
+        animation_layout = QFormLayout(animation_group)
+        animation_layout.addRow(
+            "Relax effect",
+            self._choice_combo(
+                ("animation", "relax_effect"),
+                tuple(
+                    ({"lightning": "Lightning bolt", "comet": "Comet dot", "none": "None"}[value], value)
+                    for value in RELAX_EFFECTS
+                ),
+            ),
+        )
+        animation_layout.addRow(
+            "Final reveal",
+            self._choice_combo(
+                ("animation", "final_reveal"),
+                tuple(
+                    ({"stagger": "Stagger path", "instant": "Instant"}[value], value)
+                    for value in FINAL_REVEALS
+                ),
+            ),
+        )
+        animation_layout.addRow(
+            "Impact ring",
+            self._bool_check(("animation", "impact_ring"), "Flash the receiving node ring"),
+        )
+        animation_layout.addRow(
+            "Impact badge",
+            self._bool_check(("animation", "impact_badge"), "Flash the receiving distance badge"),
+        )
+        animation_layout.addRow(
+            "Motion speed",
+            self._num_spin(("animation", "motion_scale"), 0.25, 2.0, 0.05),
+        )
+        layout.addWidget(animation_group)
         layout.addStretch(1)
         return page
 
@@ -431,6 +475,29 @@ class ThemeEditorDialog(QDialog):
         self._spins[path] = spin
         return spin
 
+    def _choice_combo(self, path, choices):
+        combo = QComboBox()
+        for label, value in choices:
+            combo.addItem(label, userData=value)
+        value = self._get(path)
+        index = combo.findData(value)
+        combo.setCurrentIndex(max(0, index))
+        combo.currentIndexChanged.connect(lambda _idx, p=path, c=combo: self._on_choice_changed(p, c))
+        self._combos[path] = combo
+        return combo
+
+    def _on_choice_changed(self, path, combo):
+        value = combo.currentData()
+        if value is not None:
+            self._set_value(path, value)
+
+    def _bool_check(self, path, label):
+        check = QCheckBox(label)
+        check.setChecked(bool(self._get(path)))
+        check.toggled.connect(lambda checked, p=path: self._set_value(p, bool(checked)))
+        self._none_checks[path] = check
+        return check
+
     # ------------------------------------------------------------------
     # Refresh / reset
     # ------------------------------------------------------------------
@@ -439,15 +506,27 @@ class ThemeEditorDialog(QDialog):
             spin.blockSignals(True)
             spin.setValue(float(self._get(path)))
             spin.blockSignals(False)
+        for path, combo in self._combos.items():
+            combo.blockSignals(True)
+            index = combo.findData(self._get(path))
+            combo.setCurrentIndex(max(0, index))
+            combo.blockSignals(False)
         for path, row in self._color_rows.items():
             value = self._get(path)
             row.set_value(value)
             if path in self._none_checks:
                 check = self._none_checks[path]
-                check.blockSignals(True)
-                check.setChecked(value is None)
-                check.blockSignals(False)
-                row.setEnabled(value is not None)
+                if isinstance(check, QCheckBox) and check.text() == "none":
+                    check.blockSignals(True)
+                    check.setChecked(value is None)
+                    check.blockSignals(False)
+                    row.setEnabled(value is not None)
+        for path, check in self._none_checks.items():
+            if path in self._color_rows:
+                continue
+            check.blockSignals(True)
+            check.setChecked(bool(self._get(path)))
+            check.blockSignals(False)
         if self._glow_enabled_check is not None:
             self._glow_enabled_check.blockSignals(True)
             self._glow_enabled_check.setChecked(bool(self._get(("glow_enabled",))))
@@ -472,6 +551,7 @@ class ThemeEditorDialog(QDialog):
             self._working["edge_styles"] = copy.deepcopy(self._seed["edge_styles"])
         elif name == "Effects":
             self._working["glow_enabled"] = self._seed["glow_enabled"]
+            self._working["animation"] = copy.deepcopy(self._seed["animation"])
         self._refresh_all_widgets()
         self._mark_dirty()
 

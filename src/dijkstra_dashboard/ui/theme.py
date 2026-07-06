@@ -14,6 +14,8 @@ NODE_STATES = ("default", "frontier", "current", "visited", "final", "not_in_pat
 EDGE_STATES = ("default", "considered", "relaxed", "final", "not_in_path", "unreachable")
 NODE_STATE_ALIASES = {"idle": "default", "unused": "not_in_path"}
 EDGE_STATE_ALIASES = {"idle": "default", "unused": "not_in_path", "visited": "relaxed"}
+RELAX_EFFECTS = ("lightning", "comet", "none")
+FINAL_REVEALS = ("stagger", "instant")
 
 #: Reserved id used for the theme editor's throwaway live-preview theme. It is
 #: registered/unregistered by the editor and never shown in the Theme menu.
@@ -55,6 +57,15 @@ class EdgeStyle:
 
 
 @dataclass(frozen=True)
+class AnimationStyle:
+    relax_effect: str
+    impact_ring: bool
+    impact_badge: bool
+    final_reveal: str
+    motion_scale: float = 1.0
+
+
+@dataclass(frozen=True)
 class Theme:
     id: str
     name: str
@@ -79,6 +90,7 @@ class Theme:
     glow_enabled: bool
     node_styles: dict[str, NodeStyle]
     edge_styles: dict[str, EdgeStyle]
+    animation: AnimationStyle
 
     def node_style(self, state: str) -> NodeStyle:
         resolved = NODE_STATE_ALIASES.get(state, state)
@@ -354,6 +366,13 @@ def _build_themes() -> dict[str, Theme]:
                 "not_in_path": EdgeStyle(stroke="#3f4652", width=2, label_fg="#929ba8", chip_bg="#00000000", chip_border="#00000000", opacity=0.62, z=0),
                 "unreachable": EdgeStyle(stroke="#ff2d55", width=2, label_fg="#ffb3c2", chip_bg="#00000000", chip_border="#00000000", z=0),
             },
+            animation=AnimationStyle(
+                relax_effect="lightning",
+                impact_ring=True,
+                impact_badge=True,
+                final_reveal="stagger",
+                motion_scale=1.0,
+            ),
         ),
         "midnight": Theme(
             id="midnight",
@@ -367,7 +386,7 @@ def _build_themes() -> dict[str, Theme]:
             text="#e2e8f0",
             muted_text="#94a3b8",
             accent="#3b82f6",
-            success="#4ade80",
+            success="#67e8f9",
             error="#f87171",
             warning="#fbbf24",
             button_bg="#1e293b",
@@ -382,18 +401,25 @@ def _build_themes() -> dict[str, Theme]:
                 "frontier": NodeStyle(fill="#172554", ring="#60a5fa", ring_width=2, text="#dbeafe"),
                 "current": NodeStyle(fill="#3b82f6", ring="#dbeafe", ring_width=3, text="#0b1120"),
                 "visited": NodeStyle(fill="#1e3a8a", ring="#3b82f6", ring_width=2.5, text="#dbeafe"),
-                "final": NodeStyle(fill="#78350f", ring="#fbbf24", ring_width=3, text="#fef3c7"),
-                "not_in_path": NodeStyle(fill="#1e293b", ring="#475569", ring_width=2, text="#e2e8f0", opacity=0.4),
+                "final": NodeStyle(fill="#123a44", ring="#38d5ff", ring_width=3, text="#eafcff", glow="#5538d5ff"),
+                "not_in_path": NodeStyle(fill="#18212f", ring="#4b5565", ring_width=2, text="#a8b3c2", opacity=0.55),
                 "unreachable": NodeStyle(fill="#450a0a", ring="#f87171", ring_width=2, text="#fecaca"),
             },
             edge_styles={
                 "default": EdgeStyle(stroke="#475569", width=2, label_fg="#cbd5e1", chip_bg="#e61e293b", chip_border="#475569", z=0),
                 "considered": EdgeStyle(stroke="#7c8faa", width=2, label_fg="#cbd5e1", chip_bg="#e61e293b", chip_border="#7c8faa", z=0.2),
                 "relaxed": EdgeStyle(stroke="#60a5fa", width=2.5, label_fg="#dbeafe", chip_bg="#e6172554", chip_border="#60a5fa", z=0.5),
-                "final": EdgeStyle(stroke="#f59e0b", width=3.5, label_fg="#fef3c7", chip_bg="#e6451a03", chip_border="#f59e0b", halo="#40f59e0b", z=1),
-                "not_in_path": EdgeStyle(stroke="#475569", width=1.5, label_fg="#cbd5e1", chip_bg="#e61e293b", chip_border="#475569", opacity=0.45, z=0),
+                "final": EdgeStyle(stroke="#38d5ff", width=3.5, label_fg="#38d5ff", chip_bg="#e6123a44", chip_border="#38d5ff", halo="#4038d5ff", z=1),
+                "not_in_path": EdgeStyle(stroke="#4b5565", width=1.6, label_fg="#9aa6b6", chip_bg="#d918212f", chip_border="#4b5565", opacity=0.5, z=0),
                 "unreachable": EdgeStyle(stroke="#f87171", width=2, label_fg="#fecaca", chip_bg="#e6450a0a", chip_border="#f87171", z=0),
             },
+            animation=AnimationStyle(
+                relax_effect="comet",
+                impact_ring=True,
+                impact_badge=True,
+                final_reveal="stagger",
+                motion_scale=0.95,
+            ),
         ),
         "paper-light": Theme(
             id="paper-light",
@@ -407,7 +433,7 @@ def _build_themes() -> dict[str, Theme]:
             text="#18181b",
             muted_text="#71717a",
             accent="#0072B2",
-            success="#009E73",
+            success="#0072B2",
             error="#D55E00",
             warning="#E69F00",
             button_bg="#f4f4f5",
@@ -422,18 +448,25 @@ def _build_themes() -> dict[str, Theme]:
                 "frontier": NodeStyle(fill="#eaf5fc", ring="#56B4E9", ring_width=2, text="#0c4a6e"),
                 "current": NodeStyle(fill="#0072B2", ring="#18181b", ring_width=3, text="#ffffff"),
                 "visited": NodeStyle(fill="#d0e6f2", ring="#0072B2", ring_width=2.5, text="#093a5c"),
-                "final": NodeStyle(fill="#d4efe6", ring="#009E73", ring_width=3, text="#065f46"),
-                "not_in_path": NodeStyle(fill="#ffffff", ring="#a1a1aa", ring_width=2, text="#18181b", opacity=0.45),
+                "final": NodeStyle(fill="#dff4ff", ring="#0072B2", ring_width=3, text="#07344d"),
+                "not_in_path": NodeStyle(fill="#f3f4f6", ring="#9ca3af", ring_width=2, text="#4b5563", opacity=0.55),
                 "unreachable": NodeStyle(fill="#fbe3d6", ring="#D55E00", ring_width=2, text="#7c2d12"),
             },
             edge_styles={
                 "default": EdgeStyle(stroke="#a1a1aa", width=2, label_fg="#3f3f46", chip_bg="#e6ffffff", chip_border="#d4d4d8", z=0),
                 "considered": EdgeStyle(stroke="#56B4E9", width=2, label_fg="#0c4a6e", chip_bg="#e6eaf5fc", chip_border="#56B4E9", z=0.2),
                 "relaxed": EdgeStyle(stroke="#0072B2", width=2.5, label_fg="#093a5c", chip_bg="#e6d0e6f2", chip_border="#0072B2", z=0.5),
-                "final": EdgeStyle(stroke="#009E73", width=3.5, label_fg="#065f46", chip_bg="#e6d4efe6", chip_border="#009E73", z=1),
-                "not_in_path": EdgeStyle(stroke="#a1a1aa", width=1.5, label_fg="#3f3f46", chip_bg="#e6ffffff", chip_border="#d4d4d8", opacity=0.4, z=0),
+                "final": EdgeStyle(stroke="#0072B2", width=3.5, label_fg="#0072B2", chip_bg="#e6dff4ff", chip_border="#0072B2", z=1),
+                "not_in_path": EdgeStyle(stroke="#9ca3af", width=1.5, label_fg="#6b7280", chip_bg="#e6f3f4f6", chip_border="#d1d5db", opacity=0.5, z=0),
                 "unreachable": EdgeStyle(stroke="#D55E00", width=2, label_fg="#7c2d12", chip_bg="#e6fbe3d6", chip_border="#D55E00", z=0),
             },
+            animation=AnimationStyle(
+                relax_effect="comet",
+                impact_ring=True,
+                impact_badge=True,
+                final_reveal="instant",
+                motion_scale=0.9,
+            ),
         ),
     }
 
@@ -613,6 +646,7 @@ def theme_to_dict(theme: Theme) -> dict:
         "glow_enabled": theme.glow_enabled,
         "node_styles": {state: asdict(style) for state, style in theme.node_styles.items()},
         "edge_styles": {state: asdict(style) for state, style in theme.edge_styles.items()},
+        "animation": asdict(theme.animation),
     }
 
 
@@ -645,6 +679,11 @@ def _pick_nullable_str(data: dict, key: str, default):
         if value is None or isinstance(value, str):
             return value
     return default
+
+
+def _pick_choice(data: dict, key: str, default: str, choices: tuple[str, ...]) -> str:
+    value = data.get(key, default)
+    return value if isinstance(value, str) and value in choices else default
 
 
 def theme_from_dict(data) -> Theme:
@@ -705,6 +744,19 @@ def theme_from_dict(data) -> Theme:
             z=_pick_num(raw, "z", base.z),
         )
 
+    animation_data = data.get("animation")
+    if not isinstance(animation_data, dict):
+        animation_data = {}
+    motion_scale = _pick_num(animation_data, "motion_scale", default.animation.motion_scale)
+    motion_scale = max(0.25, min(2.0, float(motion_scale)))
+    animation = AnimationStyle(
+        relax_effect=_pick_choice(animation_data, "relax_effect", default.animation.relax_effect, RELAX_EFFECTS),
+        impact_ring=_pick_bool(animation_data, "impact_ring", default.animation.impact_ring),
+        impact_badge=_pick_bool(animation_data, "impact_badge", default.animation.impact_badge),
+        final_reveal=_pick_choice(animation_data, "final_reveal", default.animation.final_reveal, FINAL_REVEALS),
+        motion_scale=motion_scale,
+    )
+
     font_raw = data.get("font_pref")
     if isinstance(font_raw, (list, tuple)) and font_raw and all(isinstance(x, str) for x in font_raw):
         font_pref = tuple(font_raw)
@@ -720,6 +772,7 @@ def theme_from_dict(data) -> Theme:
         font_pref=font_pref,
         node_styles=node_styles,
         edge_styles=edge_styles,
+        animation=animation,
         **chrome,
     )
 

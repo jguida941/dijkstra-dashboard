@@ -57,6 +57,13 @@ def test_neon_final_labels_match_path_cyan_and_non_path_labels_are_gray():
 
 
 @pytest.mark.ui
+def test_all_themes_use_final_label_as_the_route_color():
+    for registered in ThemeManager.THEMES.values():
+        assert registered.edge_styles["final"].label_fg == registered.edge_styles["final"].stroke
+        assert registered.edge_styles["not_in_path"].opacity < registered.edge_styles["final"].opacity
+
+
+@pytest.mark.ui
 def test_lerp_color_endpoints_and_midpoint_channels_include_alpha():
     start = QColor(0, 10, 20, 30)
     end = QColor(100, 110, 120, 130)

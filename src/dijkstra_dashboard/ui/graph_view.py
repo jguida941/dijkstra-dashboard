@@ -800,7 +800,11 @@ class GraphView(QGraphicsView):
 
         if frame.is_final and frame.path:
             # Dim non-path items instantly, then stagger the path into "final".
-            self._render_final_staggered(frame)
+            if current_theme().animation.final_reveal == "instant":
+                self._render_nodes(frame)
+                self._render_edges(frame)
+            else:
+                self._render_final_staggered(frame)
             return
 
         # Ordinary forward step: instant state pass + additive emphasis.
@@ -826,15 +830,15 @@ class GraphView(QGraphicsView):
                 item = self._edge_item_for(edge[0], edge[1])
                 if item is not None:
                     theme = current_theme()
-                    duration = self.animator.scaled(340)
-                    if theme.glow_enabled:
-                        # Neon: a warning-yellow lightning bolt shoots
-                        # source->target — contrast against the cyan edges makes
-                        # the direction unmistakable.
+                    animation = theme.animation
+                    duration = self.animator.scaled(round(340 / animation.motion_scale))
+                    if animation.relax_effect == "lightning":
+                        # A warning-orange lightning bolt shoots source->target;
+                        # contrast against the path color makes direction clear.
                         self.animator.lightning(
                             self.scene, item.curve_path(), theme.warning, duration
                         )
-                    else:
+                    elif animation.relax_effect == "comet":
                         self.animator.travel_dot(
                             self.scene, item.curve_path(),
                             theme.edge_style("relaxed").stroke, duration
@@ -852,19 +856,24 @@ class GraphView(QGraphicsView):
                     # Pop the destination so the receiving node reads instantly.
                     target_item = self.nodes.get(step.get("node"))
                     if target_item is not None:
-                        self.animator.pop_scale(target_item, self.animator.scaled(220))
-                        # The bolt color briefly takes over the destination ring
-                        # at impact; permanent state color remains cyan/gray.
-                        def flash_ring(progress, node=target_item, warning=warning):
-                            if sip.isdeleted(node):
-                                return
-                            node.set_ring_flash(warning if 0.62 <= progress < 1.0 else None)
-
-                        self.animator.animate_color(
-                            ("node-ring-flash", id(target_item)),
-                            duration,
-                            flash_ring,
+                        self.animator.pop_scale(
+                            target_item,
+                            self.animator.scaled(round(220 / animation.motion_scale)),
                         )
+                        if animation.impact_ring:
+                            # The bolt color briefly takes over the destination
+                            # ring at impact; permanent state color remains
+                            # cyan/gray after the animation finalizes.
+                            def flash_ring(progress, node=target_item, warning=warning):
+                                if sip.isdeleted(node):
+                                    return
+                                node.set_ring_flash(warning if 0.62 <= progress < 1.0 else None)
+
+                            self.animator.animate_color(
+                                ("node-ring-flash", id(target_item)),
+                                duration,
+                                flash_ring,
+                            )
 
     def _render_final_staggered(self, frame):
         final_node_ids = set(frame.path)
@@ -906,7 +915,12 @@ class GraphView(QGraphicsView):
         visited = set(frame.visited)
         step = frame.step
         emphasize_node = None
-        if frame.forward_step and step is not None and step.get("kind") == "relax":
+        if (
+            current_theme().animation.impact_badge
+            and frame.forward_step
+            and step is not None
+            and step.get("kind") == "relax"
+        ):
             emphasize_node = step.get("node")
 
         for node_id, node_item in self.nodes.items():

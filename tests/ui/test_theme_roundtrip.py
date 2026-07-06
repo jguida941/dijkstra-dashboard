@@ -47,6 +47,7 @@ def test_from_dict_fills_missing_style_fields_from_neon_defaults():
     assert theme.accent == neon.accent
     assert theme.dark == neon.dark
     assert theme.font_pref == neon.font_pref
+    assert theme.animation == neon.animation
 
 
 @pytest.mark.ui
@@ -97,3 +98,27 @@ def test_from_dict_honors_explicit_null_glow_and_halo():
 
     assert theme.node_styles["current"].glow is None
     assert theme.edge_styles["relaxed"].halo is None
+
+
+@pytest.mark.ui
+def test_from_dict_validates_animation_choices_and_clamps_motion_scale():
+    neon = ThemeManager.THEMES["neon-dark"]
+    data = {
+        "id": "bad-animation",
+        "name": "Bad Animation",
+        "animation": {
+            "relax_effect": "teleport",
+            "final_reveal": "spiral",
+            "impact_ring": False,
+            "impact_badge": False,
+            "motion_scale": 99,
+        },
+    }
+
+    theme = theme_from_dict(data)
+
+    assert theme.animation.relax_effect == neon.animation.relax_effect
+    assert theme.animation.final_reveal == neon.animation.final_reveal
+    assert theme.animation.impact_ring is False
+    assert theme.animation.impact_badge is False
+    assert theme.animation.motion_scale == 2.0

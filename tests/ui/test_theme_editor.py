@@ -67,6 +67,26 @@ def test_model_edit_plus_flush_reflects_in_live_preview(qapp):
 
 
 @pytest.mark.ui
+def test_animation_edit_plus_flush_reflects_in_live_preview(qapp):
+    manager = get_theme_manager()
+    manager.set_theme("neon-dark", persist=False)
+
+    dialog = ThemeEditorDialog()
+    try:
+        dialog._set_value(("animation", "relax_effect"), "comet")
+        dialog._set_value(("animation", "final_reveal"), "instant")
+        dialog._set_value(("animation", "impact_ring"), False)
+        dialog._flush_preview()
+
+        assert manager.current.id == PREVIEW_THEME_ID
+        assert manager.current.animation.relax_effect == "comet"
+        assert manager.current.animation.final_reveal == "instant"
+        assert manager.current.animation.impact_ring is False
+    finally:
+        dialog.reject()
+
+
+@pytest.mark.ui
 def test_cancel_restores_original_theme_and_unregisters_preview(qapp):
     manager = get_theme_manager()
     manager.set_theme("midnight", persist=False)
@@ -163,6 +183,25 @@ def test_reset_section_restores_category_from_seed(qapp):
         dialog._reset_section()
 
         assert dialog._working["accent"] == seed_accent
+    finally:
+        dialog.reject()
+
+
+@pytest.mark.ui
+def test_reset_effects_restores_animation_settings(qapp):
+    manager = get_theme_manager()
+    manager.set_theme("neon-dark", persist=False)
+
+    dialog = ThemeEditorDialog()
+    try:
+        seed = dialog._seed["animation"]["relax_effect"]
+        dialog._set_value(("animation", "relax_effect"), "none")
+        assert dialog._working["animation"]["relax_effect"] == "none"
+
+        dialog._select_category("Effects")
+        dialog._reset_section()
+
+        assert dialog._working["animation"]["relax_effect"] == seed
     finally:
         dialog.reject()
 
