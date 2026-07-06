@@ -133,6 +133,10 @@ def describe_summary(summary, label_of):
         "text",
     ))
 
+    converged = summary.get("converged_at_pass")
+    if converged is not None:
+        lines.append((f"Converged after pass {converged} — later passes skipped.", "muted"))
+
     error = summary.get("error")
     if error:
         lines.append((error, "error"))

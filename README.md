@@ -50,6 +50,17 @@ graph easy to compare and easy to read.
   for two-way paths with different weights).
 - **Open / Save / Save As** graphs as JSON (node positions, labels, weights, and directed/undirected mode
   are preserved).
+- **Undo / redo** for every edit — add/delete/rename, weight changes, node moves (one step per drag),
+  layout application, and the directed toggle — via Edit → Undo / Redo (Ctrl+Z / Ctrl+Shift+Z).
+
+### Graph tooling
+- **Generate Random…** — seeded random graphs (2–50 nodes, edge density, weight range, directed,
+  connected); the resolved seed is echoed back so every generation is reproducible.
+- **Layouts** — Circle, Grid, and Spring (deterministic), animated into place from the Graph menu.
+- **New / New Demo Graph / Examples** — start fresh, reload the classic A–F demo, or open the bundled
+  example graphs (source checkout only).
+- **Export** — save the canvas as a **PNG** (2× scale) or **SVG** from the File menu.
+- **Recent files** — the File menu keeps the last eight graphs you opened or saved.
 
 ### Themes
 - **Neon Dark**, **Midnight**, and **Paper Light** — switch live from the View → Theme menu; your choice is
@@ -105,6 +116,10 @@ Editing gestures and keyboard shortcuts (the in-app **Help → Controls** dialog
 | Play / Pause | Space |
 | Step forward / back | Right / Left arrow |
 | Jump to first / last step | Home / End |
+| Undo / Redo | Ctrl+Z / Ctrl+Shift+Z (Cmd on macOS) |
+| Generate a random graph | Graph → Generate Random… |
+| Apply a layout | Graph → Layout → Circle / Grid / Spring |
+| Export the canvas | File → Export as PNG… / Export as SVG… |
 
 Transport shortcuts use a window-level binding with a focus guard: they are ignored while an editable widget
 (a combo box, slider, or text field) holds keyboard focus, so typing a weight or picking an algorithm never
@@ -137,9 +152,11 @@ steering toward the target. A\* requires a target.
 - **Trace-first core.** Each algorithm's `iter_steps` yields a stream of typed step events
   (`visit` / `relax` / `skip` / `final`); a small runner folds that stream into distances, predecessors,
   reconstructed paths, and visit order (`runner.apply_steps` / `result_from_steps`).
-- **Qt-free core, thin UI.** `core/` (graph model, the four algorithms, the runner, the narration
-  formatters) imports no Qt and is fully unit-tested headlessly; `ui/` holds the PyQt6 widgets that render
-  those results.
+- **Qt-free core, thin UI.** `core/` (graph model, the four algorithms, the runner, the sample and
+  random-graph generators) imports no Qt and is fully unit-tested headlessly; the narration formatters
+  (`ui/narration.py`) are likewise pure functions with pinned goldens; `ui/` holds the PyQt6 widgets.
+- **Snapshot undo/redo.** Every mutation captures a whole-graph before/after snapshot pair onto a
+  `QUndoStack`; undo restores through the same `set_graph` pipeline the file loaders use.
 - **Refold scrubbing.** `PlaybackController` owns the trace and replay state. Seeking or stepping back
   re-folds `steps[:index]` from scratch, so every frame — forward, backward, or a timeline jump — is
   reconstructed deterministically, and the graph view stays a pure renderer of the emitted `RenderFrame`.

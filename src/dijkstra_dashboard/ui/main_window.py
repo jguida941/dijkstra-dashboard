@@ -180,6 +180,7 @@ class MainWindow(QMainWindow):
         self.playback.unload()
         self.graph_view.clear_run_decorations()
         self.controls_panel.clear_timeline()
+        self.inspector.clear_run_views()
 
     def _set_directed_toggle(self, value):
         toggle = self.controls_panel.directed_toggle

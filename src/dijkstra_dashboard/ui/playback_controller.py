@@ -228,6 +228,11 @@ class PlaybackController(QObject):
             "comparisons": relaxations + skips,
             "error": self._fold_error,
         }
+        last = self._steps[-1] if self._steps else None
+        if last is not None and last.get("kind") == "final":
+            payload = last.get("payload") or {}
+            if "converged_at_pass" in payload:
+                summary["converged_at_pass"] = payload["converged_at_pass"]
         self.run_finished.emit(summary)
         if self._fold_error:
             self.run_error.emit(self._fold_error)

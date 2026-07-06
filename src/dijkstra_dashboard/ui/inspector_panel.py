@@ -78,6 +78,12 @@ class InspectorPanel(QWidget):
         self.pseudocode.refresh_theme(theme)
         self.narration.refresh_theme(theme)
 
+    def clear_run_views(self):
+        """Drop run-specific content when the graph changes: stale table rows
+        and the pseudocode highlight. Narration scrollback is kept as history."""
+        self.table.setRowCount(0)
+        self.pseudocode.highlight_step([])
+
     def _rebuild_legend(self, theme):
         entries = (
             ("Current", theme.node_style("current").ring),

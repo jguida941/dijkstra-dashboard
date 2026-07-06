@@ -147,6 +147,14 @@ def test_describe_summary_no_path():
     ]
 
 
+def test_describe_summary_notes_bf_early_convergence():
+    summary = {"algorithm": "bellman-ford", "path": ("A", "B"), "distance": 4,
+               "visits": 0, "relaxations": 2, "skips": 5, "comparisons": 7,
+               "converged_at_pass": 2, "error": None}
+    lines = describe_summary(summary, _identity)
+    assert ("Converged after pass 2 — later passes skipped.", "muted") in lines
+
+
 def test_describe_summary_appends_error_line():
     summary = {"algorithm": "bellman-ford", "path": (), "distance": None,
                "visits": 2, "relaxations": 1, "skips": 0, "comparisons": 1,

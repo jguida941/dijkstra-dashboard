@@ -223,3 +223,25 @@ def test_algorithm_switch_swaps_pseudocode_and_table_header(qapp):
     assert pseudocode.count() == len(bfs_pseudo)
     assert pseudocode.item(0).text() == bfs_pseudo[0]
     window.close()
+
+
+@pytest.mark.ui
+def test_graph_change_clears_stale_table_rows(qapp):
+    window = MainWindow()
+    graph = window.graph_view.get_graph()
+    node_ids = graph.get_nodes()
+    assert window.playback.load_run(graph, "dijkstra",
+                                    {"start": node_ids[0], "target": node_ids[-1]})
+    window.playback.step_forward()
+    assert window.inspector.table.rowCount() > 0
+
+    from dijkstra_dashboard.core.graph import Graph
+    fresh = Graph()
+    fresh.add_node(node_id="X", label="X", x=0, y=0)
+    fresh.add_node(node_id="Y", label="Y", x=50, y=0)
+    fresh.add_edge("X", "Y", 1)
+    window.graph_view.set_graph(fresh)
+    qapp.processEvents()
+
+    assert window.inspector.table.rowCount() == 0
+    window.close()
