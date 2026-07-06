@@ -8,7 +8,7 @@ ENV_PREFIX = "DIJKSTRA_DASHBOARD_"
 
 _DEFAULT_CONFIG: Dict[str, Any] = {
     "version": CONFIG_VERSION,
-    "theme": "cyberpunk",
+    "theme": "neon-dark",
     "output_format": "table",
     "steps_mode": "delta",
     "animation_speed": 1.0,
