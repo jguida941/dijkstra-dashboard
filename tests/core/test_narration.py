@@ -147,6 +147,22 @@ def test_describe_summary_no_path():
     ]
 
 
+def test_comparison_line_bellman_ford_uses_passes():
+    a = {"algorithm": "dijkstra", "visits": 3, "distance": 4}
+    b = {"algorithm": "bellman-ford", "visits": 0, "passes": 2, "distance": 4}
+    assert comparison_line(a, b, _identity) == (
+        "Dijkstra: 3 visits, cost 4 | Bellman-Ford: 2 passes, cost 4"
+    )
+
+
+def test_describe_summary_bf_counts_use_passes():
+    summary = {"algorithm": "bellman-ford", "path": ("A", "B"), "distance": 4,
+               "visits": 0, "passes": 2, "relaxations": 6, "skips": 1,
+               "comparisons": 7, "error": None}
+    lines = describe_summary(summary, _identity)
+    assert ("Passes 2 · Relaxations 6 · Skips 1 · Comparisons 7", "text") in lines
+
+
 def test_describe_summary_notes_bf_early_convergence():
     summary = {"algorithm": "bellman-ford", "path": ("A", "B"), "distance": 4,
                "visits": 0, "relaxations": 2, "skips": 5, "comparisons": 7,

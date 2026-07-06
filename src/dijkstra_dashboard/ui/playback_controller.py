@@ -215,7 +215,12 @@ class PlaybackController(QObject):
         self._finished_emitted = True
         relaxations = sum(1 for step in self._steps if step.get("kind") == "relax")
         skips = sum(1 for step in self._steps if step.get("kind") == "skip")
+        # Bellman-Ford emits node-less visit steps as pass markers; the count is
+        # its meaningful effort metric (its node-visit count is always 0).
+        passes = sum(1 for step in self._steps
+                     if step.get("kind") == "visit" and step.get("node") is None)
         summary = {
+            "passes": passes,
             "algorithm": self._algorithm_name,
             "start": self._start,
             "target": self._target,

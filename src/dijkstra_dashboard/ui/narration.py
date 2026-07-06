@@ -125,8 +125,10 @@ def describe_summary(summary, label_of):
     else:
         lines.append(("No path found.", "error"))
 
+    passes = summary.get("passes", 0)
+    effort = f"Passes {passes}" if passes else f"Visits {summary.get('visits', 0)}"
     lines.append((
-        f"Visits {summary.get('visits', 0)} · "
+        f"{effort} · "
         f"Relaxations {summary.get('relaxations', 0)} · "
         f"Skips {summary.get('skips', 0)} · "
         f"Comparisons {summary.get('comparisons', 0)}",
@@ -153,9 +155,18 @@ def _cost_phrase(summary) -> str:
     return f"cost {value}"
 
 
+def _effort_phrase(summary) -> str:
+    """'5 visits' for node-settling algorithms, '2 passes' for Bellman-Ford
+    (whose pass markers make its visit count a meaningless 0)."""
+    passes = summary.get("passes", 0)
+    if passes:
+        return f"{passes} pass" if passes == 1 else f"{passes} passes"
+    return f"{summary.get('visits')} visits"
+
+
 def comparison_line(a, b, label_of) -> str:
     """'Dijkstra: 5 visits, cost 6 | BFS: 5 visits, 2 hops'."""
     return (
-        f"{_display(a.get('algorithm'))}: {a.get('visits')} visits, {_cost_phrase(a)} | "
-        f"{_display(b.get('algorithm'))}: {b.get('visits')} visits, {_cost_phrase(b)}"
+        f"{_display(a.get('algorithm'))}: {_effort_phrase(a)}, {_cost_phrase(a)} | "
+        f"{_display(b.get('algorithm'))}: {_effort_phrase(b)}, {_cost_phrase(b)}"
     )
