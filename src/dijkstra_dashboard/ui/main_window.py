@@ -1,11 +1,11 @@
 import json
 
-from PyQt6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QFileDialog, QMessageBox, QLabel
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QPalette, QColor, QAction
+from PyQt6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QFileDialog, QMessageBox, QLabel
+from PyQt6.QtGui import QAction, QActionGroup
 from .graph_view import GraphView
 from .controls_panel import ControlsPanel
 from .status_panel import StatusPanel
+from .theme import current_theme, get_theme_manager, make_app_icon
 from dijkstra_dashboard.core.graph import Graph
 
 class MainWindow(QMainWindow):
@@ -14,12 +14,6 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Dijkstra Path Visualizer")
         self.setMinimumSize(1000, 700)
         self.graph_path = None
-        
-        # Set dark theme
-        self.set_dark_theme()
-
-        # Menu actions
-        self.setup_menus()
 
         # Create central widget and layout
         central_widget = QWidget()
@@ -35,11 +29,8 @@ class MainWindow(QMainWindow):
         left_layout.addWidget(self.controls_panel)
 
         self.notice_label = QLabel("")
+        self.notice_label.setObjectName("noticeLabel")
         self.notice_label.setVisible(False)
-        self.notice_label.setStyleSheet(
-            "background-color: #5a1a1a; color: #ffffff; padding: 6px 10px; "
-            "border: 1px solid #aa3333; border-radius: 4px;"
-        )
         left_layout.addWidget(self.notice_label)
 
         # Right panel (status)
@@ -51,9 +42,8 @@ class MainWindow(QMainWindow):
         right_layout.addWidget(self.status_panel)
 
         # Create and add graph view
-        self.graph_view = GraphView()
+        self.graph_view = GraphView(status_panel=self.status_panel)
         left_layout.addWidget(self.graph_view)
-        self.graph_view.status_panel = self.status_panel
         self.controls_panel.set_nodes(self.graph_view.get_node_items())
         if self.graph_view.get_graph():
             self._set_directed_toggle(self.graph_view.get_graph().directed)
@@ -69,6 +59,9 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(left_panel, stretch=2)
         main_layout.addWidget(right_panel, stretch=1)
 
+        # Menu actions
+        self.setup_menus()
+
         # Connect signals
         self.controls_panel.run_button.clicked.connect(self.start_visualization)
         self.controls_panel.reset_button.clicked.connect(self.reset_visualization)
@@ -80,6 +73,11 @@ class MainWindow(QMainWindow):
         self.graph_view.graph_changed.connect(self.on_graph_changed)
         self.graph_view.message_changed.connect(self.on_message_changed)
         self.graph_view.playback_finished.connect(self.on_playback_finished)
+
+        manager = get_theme_manager()
+        manager.theme_changed.connect(self.apply_theme)
+        manager.theme_changed.connect(self.status_panel.refresh_theme)
+        self.apply_theme(current_theme())
 
         self.on_speed_changed(self.controls_panel.speed_slider.value())
 
@@ -115,29 +113,58 @@ class MainWindow(QMainWindow):
         save_as_action.triggered.connect(self.save_graph_as)
         file_menu.addAction(save_as_action)
 
+        view_menu = self.menuBar().addMenu("View")
+        theme_menu = view_menu.addMenu("Theme")
+        manager = get_theme_manager()
+        self.theme_action_group = QActionGroup(self)
+        self.theme_action_group.setExclusive(True)
+        self.theme_actions = {}
+        for theme_id in manager.theme_ids():
+            theme = manager.THEMES[theme_id]
+            action = QAction(theme.name, self)
+            action.setCheckable(True)
+            action.setData(theme_id)
+            action.setChecked(theme_id == manager.current.id)
+            action.triggered.connect(
+                lambda checked, selected_theme_id=theme_id: manager.set_theme(selected_theme_id, persist=True)
+                if checked else None
+            )
+            self.theme_action_group.addAction(action)
+            theme_menu.addAction(action)
+            self.theme_actions[theme_id] = action
+
+        manager.theme_changed.connect(self._sync_theme_actions)
+
+        view_menu.addSeparator()
+        zoom_in_action = QAction("Zoom In", self)
+        zoom_in_action.triggered.connect(self.graph_view.zoom_in)
+        view_menu.addAction(zoom_in_action)
+
+        zoom_out_action = QAction("Zoom Out", self)
+        zoom_out_action.triggered.connect(self.graph_view.zoom_out)
+        view_menu.addAction(zoom_out_action)
+
+        reset_zoom_action = QAction("Reset Zoom", self)
+        reset_zoom_action.triggered.connect(self.graph_view.reset_zoom)
+        view_menu.addAction(reset_zoom_action)
+
         help_menu = self.menuBar().addMenu("Help")
         controls_action = QAction("Controls...", self)
         controls_action.triggered.connect(self.show_controls_help)
         help_menu.addAction(controls_action)
 
-    def set_dark_theme(self):
-        # Set dark palette
-        palette = QPalette()
-        palette.setColor(QPalette.ColorRole.Window, QColor(53, 53, 53))
-        palette.setColor(QPalette.ColorRole.WindowText, Qt.GlobalColor.white)
-        palette.setColor(QPalette.ColorRole.Base, QColor(25, 25, 25))
-        palette.setColor(QPalette.ColorRole.AlternateBase, QColor(53, 53, 53))
-        palette.setColor(QPalette.ColorRole.ToolTipBase, Qt.GlobalColor.white)
-        palette.setColor(QPalette.ColorRole.ToolTipText, Qt.GlobalColor.white)
-        palette.setColor(QPalette.ColorRole.Text, Qt.GlobalColor.white)
-        palette.setColor(QPalette.ColorRole.Button, QColor(53, 53, 53))
-        palette.setColor(QPalette.ColorRole.ButtonText, Qt.GlobalColor.white)
-        palette.setColor(QPalette.ColorRole.BrightText, Qt.GlobalColor.red)
-        palette.setColor(QPalette.ColorRole.Link, QColor(42, 130, 218))
-        palette.setColor(QPalette.ColorRole.Highlight, QColor(42, 130, 218))
-        palette.setColor(QPalette.ColorRole.HighlightedText, Qt.GlobalColor.black)
+    def apply_theme(self, theme):
+        app = QApplication.instance()
+        if app is not None:
+            app.setPalette(theme.palette())
+            app.setStyleSheet(theme.qss())
+        self.setWindowIcon(make_app_icon(theme))
 
-        self.setPalette(palette)
+    def _sync_theme_actions(self, theme):
+        for theme_id, action in self.theme_actions.items():
+            blocked = action.blockSignals(True)
+            action.setChecked(theme_id == theme.id)
+            action.blockSignals(blocked)
 
     def start_visualization(self):
         start_node = self.controls_panel.get_start_node_id()

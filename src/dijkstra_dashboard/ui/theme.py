@@ -118,6 +118,8 @@ class Theme:
         checkbox_bg = _color_name(lerp_color(QColor(self.base_bg), QColor(self.panel_bg), 0.5))
         zoom_hover = _color_name(lerp_color(QColor(self.panel_bg), QColor(self.accent), 0.16))
         zoom_pressed = _color_name(lerp_color(QColor(self.panel_bg), QColor(self.accent), 0.28))
+        notice_bg = _color_name(lerp_color(QColor(self.panel_bg), QColor(self.error), 0.22))
+        notice_border = _color_name(lerp_color(QColor(self.panel_bg), QColor(self.error), 0.5))
 
         return f"""
 QPushButton {{
@@ -199,7 +201,11 @@ QToolTip {{
     padding: 4px;
 }}
 #noticeLabel {{
-    color: {self.warning};
+    background-color: {notice_bg};
+    border: 1px solid {notice_border};
+    border-radius: 4px;
+    padding: 6px 10px;
+    color: {self.text};
 }}
 #statusTitle {{
     color: {self.accent};

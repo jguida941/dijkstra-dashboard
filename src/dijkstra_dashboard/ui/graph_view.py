@@ -1,8 +1,9 @@
-from PyQt6.QtWidgets import QGraphicsView, QGraphicsScene, QGraphicsDropShadowEffect, QPushButton, QHBoxLayout, QWidget, QInputDialog, QGraphicsSimpleTextItem, QSizePolicy
-from PyQt6.QtCore import Qt, QPointF, QTimer, QRectF, QPoint, pyqtSignal
-from PyQt6.QtGui import QPen, QBrush, QColor, QLinearGradient, QWheelEvent, QMouseEvent, QResizeEvent
+from PyQt6.QtWidgets import QGraphicsView, QGraphicsScene, QPushButton, QHBoxLayout, QWidget, QInputDialog, QGraphicsSimpleTextItem, QSizePolicy
+from PyQt6.QtCore import Qt, QPointF, QTimer, pyqtSignal
+from PyQt6.QtGui import QBrush, QColor, QLinearGradient, QResizeEvent
 from .graph_node import GraphNode
-from .graph_edge import GraphEdge
+from .graph_edge import GraphEdge, WeightChip
+from .theme import current_theme, get_theme_manager
 from dijkstra_dashboard.core.algorithms.dijkstra import DijkstraAlgorithm
 from dijkstra_dashboard.core.algorithms.runner import apply_step, init_state
 from dijkstra_dashboard.core.errors import AlgorithmError
@@ -33,11 +34,7 @@ class GraphView(QGraphicsView):
         # Initial scene rect - will be updated on resize
         self.scene.setSceneRect(-400, -300, 800, 600)
         
-        # Enhanced background with gradient
-        gradient = QLinearGradient(0, 0, 0, 600)
-        gradient.setColorAt(0, QColor(10, 10, 10))
-        gradient.setColorAt(1, QColor(20, 20, 20))
-        self.setBackgroundBrush(QBrush(gradient))
+        self._apply_canvas_bg(current_theme())
         
         # Enable node dragging; use right-click drag for panning
         self.setDragMode(self.DragMode.NoDrag)
@@ -67,9 +64,11 @@ class GraphView(QGraphicsView):
         self.step_state = None
         self.ready_params = None
         self.finalized = False
+        self._current_node_id = None
         
         # Status panel reference
         self.status_panel = status_panel
+        get_theme_manager().theme_changed.connect(self._on_theme_changed)
         
         # Setup the graph
         self.setup_graph()
@@ -77,60 +76,23 @@ class GraphView(QGraphicsView):
     def create_zoom_controls(self):
         # Create a container widget for zoom controls
         controls_widget = QWidget()
+        controls_widget.setObjectName("zoomOverlay")
         controls_layout = QHBoxLayout()
         controls_widget.setLayout(controls_layout)
         
         # Zoom out button
         zoom_out_btn = QPushButton("-")
         zoom_out_btn.setFixedSize(30, 30)
-        zoom_out_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #333333;
-                color: white;
-                border: 1px solid #555555;
-                border-radius: 15px;
-                font-size: 16px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #444444;
-            }
-        """)
         zoom_out_btn.clicked.connect(self.zoom_out)
         
         # Zoom reset button
         zoom_reset_btn = QPushButton("100%")
         zoom_reset_btn.setFixedSize(50, 30)
-        zoom_reset_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #333333;
-                color: white;
-                border: 1px solid #555555;
-                border-radius: 15px;
-                font-size: 12px;
-            }
-            QPushButton:hover {
-                background-color: #444444;
-            }
-        """)
         zoom_reset_btn.clicked.connect(self.reset_zoom)
         
         # Zoom in button
         zoom_in_btn = QPushButton("+")
         zoom_in_btn.setFixedSize(30, 30)
-        zoom_in_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #333333;
-                color: white;
-                border: 1px solid #555555;
-                border-radius: 15px;
-                font-size: 16px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #444444;
-            }
-        """)
         zoom_in_btn.clicked.connect(self.zoom_in)
         
         # Add buttons to layout
@@ -143,6 +105,21 @@ class GraphView(QGraphicsView):
         # Add controls to the view
         controls_widget.setParent(self)
         controls_widget.move(10, 10)  # Position in top-left corner
+        self.zoom_controls_widget = controls_widget
+
+    def _apply_canvas_bg(self, theme):
+        rect = self.scene.sceneRect()
+        gradient = QLinearGradient(0, rect.top(), 0, rect.bottom())
+        gradient.setColorAt(0, QColor(theme.canvas_bg_top))
+        gradient.setColorAt(1, QColor(theme.canvas_bg_bottom))
+        self.setBackgroundBrush(QBrush(gradient))
+
+    def _on_theme_changed(self, theme):
+        self._apply_canvas_bg(theme)
+        for node in self.nodes.values():
+            node.refresh_theme()
+        for edge in self.edges.values():
+            edge.refresh_theme()
         
     def zoom_in(self):
         self.zoom_level += self.zoom_step
@@ -168,6 +145,7 @@ class GraphView(QGraphicsView):
         w = event.size().width()
         h = event.size().height()
         self.scene.setSceneRect(-w / 2, -h / 2, w, h)
+        self._apply_canvas_bg(current_theme())
         # Update edge label positions since scene bounds changed
         for edge in self.edges.values():
             edge.update_position()
@@ -253,6 +231,8 @@ class GraphView(QGraphicsView):
                     edges.append(item)
                 elif isinstance(item, GraphNode):
                     nodes.append(item)
+                elif isinstance(item, WeightChip):
+                    edges.append(item.edge)
                 elif isinstance(item, QGraphicsSimpleTextItem):
                     # Check if it's an edge label
                     for edge in self.edges.values():
@@ -304,6 +284,8 @@ class GraphView(QGraphicsView):
         self._invalidate_steps()
 
         # Clear old scene
+        for node in self.nodes.values():
+            node.stop_pulse()
         self.scene.clear()
         self.nodes.clear()
         self.edges.clear()
@@ -445,7 +427,7 @@ class GraphView(QGraphicsView):
                     )
             except Exception as exc:
                 if self.status_panel:
-                    self.status_panel.update_status(str(exc), "#ff5555")
+                    self.status_panel.update_status(str(exc), "error")
 
         self.pending_edge_start = None
 
@@ -462,10 +444,9 @@ class GraphView(QGraphicsView):
 
     def _highlight_no_path(self):
         for node in self.nodes.values():
-            node.set_state("unused")
+            node.set_state("unreachable")
         for edge in self.edges.values():
-            edge.set_state("unused")
-            edge.set_cost_label_color(QColor("red"))
+            edge.set_state("unreachable")
 
     def _invalidate_steps(self):
         self.animation_timer.stop()
@@ -477,6 +458,7 @@ class GraphView(QGraphicsView):
         self.step_state = None
         self.ready_params = None
         self.finalized = False
+        self._current_node_id = None
 
     def _label_lookup(self, node_id):
         if self.graph:
@@ -495,10 +477,8 @@ class GraphView(QGraphicsView):
     def _edge_from_item(self, item):
         if isinstance(item, GraphEdge):
             return item
-        if isinstance(item, QGraphicsSimpleTextItem):
-            for edge in self.edges.values():
-                if edge.label is item:
-                    return edge
+        if isinstance(item, WeightChip):
+            return item.edge
         return None
 
     def _rename_node(self, node_item):
@@ -517,14 +497,14 @@ class GraphView(QGraphicsView):
         label = label.strip()
         if not label:
             if self.status_panel:
-                self.status_panel.update_status("Node label cannot be empty.", "#ff5555")
+                self.status_panel.update_status("Node label cannot be empty.", "error")
             return
         for node in self.graph.nodes():
             if node.label == label and node.id != node_item.node_id:
                 if self.status_panel:
                     self.status_panel.update_status(
                         f"Node label '{label}' is already in use.",
-                        "#ff5555",
+                        "error",
                     )
                 return
         try:
@@ -534,7 +514,7 @@ class GraphView(QGraphicsView):
             self.graph_changed.emit()
         except Exception as exc:
             if self.status_panel:
-                self.status_panel.update_status(str(exc), "#ff5555")
+                self.status_panel.update_status(str(exc), "error")
 
     def _edit_edge_weight(self, edge_item):
         if not self.graph:
@@ -561,7 +541,7 @@ class GraphView(QGraphicsView):
             self._invalidate_steps()
         except Exception as exc:
             if self.status_panel:
-                self.status_panel.update_status(str(exc), "#ff5555")
+                self.status_panel.update_status(str(exc), "error")
 
     def _remove_node_item(self, node_item):
         if not self.graph:
@@ -576,7 +556,7 @@ class GraphView(QGraphicsView):
             self.graph.remove_node(node_id)
         except Exception as exc:
             if self.status_panel:
-                self.status_panel.update_status(str(exc), "#ff5555")
+                self.status_panel.update_status(str(exc), "error")
             return
         for edge_key in edges_to_remove:
             edge_item = self.edges.pop(edge_key, None)
@@ -584,8 +564,7 @@ class GraphView(QGraphicsView):
                 edge_item.dispose()
         self.nodes.pop(node_id, None)
         # Stop animation and clear graphics effects on node before removal
-        if hasattr(node_item, 'pulse_animation'):
-            node_item.pulse_animation.stop()
+        node_item.stop_pulse()
         if hasattr(node_item, 'label') and node_item.label:
             node_item.label.setGraphicsEffect(None)
         node_item.setGraphicsEffect(None)
@@ -607,7 +586,7 @@ class GraphView(QGraphicsView):
                 self.graph.remove_edge(start_id, end_id)
         except Exception as exc:
             if self.status_panel:
-                self.status_panel.update_status(str(exc), "#ff5555")
+                self.status_panel.update_status(str(exc), "error")
             return
         if edge_item.bidirectional and self.graph.directed:
             edge_key = tuple(sorted([start_id, end_id]))
@@ -695,7 +674,7 @@ class GraphView(QGraphicsView):
             })
         except AlgorithmError as exc:
             if self.status_panel:
-                self.status_panel.update_status(str(exc), "#ff5555")
+                self.status_panel.update_status(str(exc), "error")
             return False
 
         self.current_path = result.path or []
@@ -712,7 +691,7 @@ class GraphView(QGraphicsView):
             self._highlight_no_path()
             self.message_changed.emit("No path found.")
             if self.status_panel:
-                self.status_panel.update_status("No path found.", "#ff5555")
+                self.status_panel.update_status("No path found.", "error")
             return False
 
         return True
@@ -756,8 +735,12 @@ class GraphView(QGraphicsView):
 
         if kind == "visit":
             node_id = step.get("node")
+            previous_node_id = self._current_node_id
+            if previous_node_id in self.nodes and previous_node_id != node_id:
+                self.nodes[previous_node_id].set_state("visited")
             if node_id in self.nodes:
-                self.nodes[node_id].highlight(is_final_path=False)
+                self.nodes[node_id].set_state("current")
+                self._current_node_id = node_id
                 if node_id not in self.visited_order:
                     self.visited_order.append(node_id)
         elif kind == "relax":
@@ -766,7 +749,7 @@ class GraphView(QGraphicsView):
             if start and end:
                 edge = self._edge_item_for(start, end)
                 if edge:
-                    edge.highlight(is_final_path=False)
+                    edge.set_state("relaxed")
 
         # Update status panel
         if self.status_panel:
@@ -789,13 +772,11 @@ class GraphView(QGraphicsView):
             return
         self.finalized = True
 
-        # After animation completes, highlight the final path in green
         for edge in self.edges.values():
-            edge.set_state("unused")
-            edge.set_cost_label_color(QColor("red"))
+            edge.set_state("not_in_path")
 
         for node in self.nodes.values():
-            node.set_state("unused")
+            node.set_state("not_in_path")
 
         for i in range(len(self.current_path) - 1):
             current = self.current_path[i]
@@ -803,8 +784,7 @@ class GraphView(QGraphicsView):
             self.nodes[current].set_state("final")
             edge = self._edge_item_for(current, next_node)
             if edge:
-                edge.highlight(is_final_path=True)
-                edge.set_cost_label_color(QColor("lime"))
+                edge.set_state("final")
 
         # Highlight the last node in the final path
         self.nodes[self.current_path[-1]].set_state("final")
@@ -852,12 +832,13 @@ class GraphView(QGraphicsView):
         self._clear_message()
         self.ready_params = None
         self.finalized = False
+        self._current_node_id = None
 
         # Reset all nodes and edges
         for node in self.nodes.values():
-            node.reset()
+            node.set_state("default")
         for edge in self.edges.values():
-            edge.reset()
+            edge.set_state("default")
 
         # Clear status panel
         if self.status_panel:
