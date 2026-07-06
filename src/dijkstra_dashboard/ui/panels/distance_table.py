@@ -34,7 +34,7 @@ def _state_text(frame, node_id) -> str:
     if frame.is_final and frame.path and node_id in frame.path:
         return "final"
     if frame.is_final and frame.path:
-        return "not in path"
+        return "searched, not in path" if distance < INF else ""
     if frame.is_final:
         return "unreachable" if distance == INF else "not in path"
     if node_id == frame.current:

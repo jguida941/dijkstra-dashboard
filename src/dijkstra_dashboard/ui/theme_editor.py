@@ -341,7 +341,7 @@ class ThemeEditorDialog(QDialog):
         page = QWidget()
         layout = QVBoxLayout(page)
         for state in NODE_STATES:
-            group = QGroupBox(state)
+            group = QGroupBox(self._node_state_label(state))
             form = QFormLayout(group)
             form.addRow("Fill", self._color_row(("node_styles", state, "fill"), alpha=False))
             form.addRow("Ring", self._color_row(("node_styles", state, "ring"), alpha=False))
@@ -357,7 +357,7 @@ class ThemeEditorDialog(QDialog):
         page = QWidget()
         layout = QVBoxLayout(page)
         for state in EDGE_STATES:
-            group = QGroupBox(state)
+            group = QGroupBox(self._edge_state_label(state))
             form = QFormLayout(group)
             form.addRow("Stroke", self._color_row(("edge_styles", state, "stroke"), alpha=False))
             form.addRow("Label", self._color_row(("edge_styles", state, "label_fg"), alpha=False))
@@ -370,6 +370,27 @@ class ThemeEditorDialog(QDialog):
             layout.addWidget(group)
         layout.addStretch(1)
         return page
+
+    def _node_state_label(self, state):
+        return {
+            "default": "Unseen node",
+            "frontier": "Frontier node",
+            "current": "Current node",
+            "visited": "Settled node",
+            "final": "Final answer node",
+            "not_in_path": "Searched off-path node",
+            "unreachable": "Unreachable node",
+        }.get(state, state)
+
+    def _edge_state_label(self, state):
+        return {
+            "default": "Untouched edge",
+            "considered": "Searched / rejected edge",
+            "relaxed": "Current best edge",
+            "final": "Final answer edge",
+            "not_in_path": "Off-path edge",
+            "unreachable": "Unreachable edge",
+        }.get(state, state)
 
     def _build_effects_page(self):
         page = QWidget()

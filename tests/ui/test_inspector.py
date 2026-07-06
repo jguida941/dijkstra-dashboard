@@ -106,6 +106,8 @@ def test_run_to_end_summary_then_comparison_on_second_algorithm(qapp):
     text = window.inspector.narration.toPlainText()
     assert "Path: A → C → B → F (cost 6)" in text
     assert "Visits 5 · Relaxations 7 · Skips 6 · Comparisons 13" in text
+    assert window.inspector.table.item(_row("D"), 3).text() == "searched, not in path"
+    assert window.inspector.table.item(_row("E"), 3).text() == "searched, not in path"
 
     _select_algo(window, "bfs")
     _load(window)

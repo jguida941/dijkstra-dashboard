@@ -889,13 +889,20 @@ class GraphView(QGraphicsView):
             node_item.set_distance_text(format_distance(distance))
             node_item.set_badge_emphasis(False)
             if node_id not in final_node_ids:
-                node_item.set_state("not_in_path")
+                node_item.set_state("not_in_path" if distance < INF else "default")
 
-        # Non-path edges dim instantly; path edges wait for the stagger.
+        tree_items = self._items_for(frame.tree_edges)
+        considered_items = self._items_for(frame.considered_edges) - tree_items
+
+        # Non-path edges resolve before the stagger: searched/rejected edges keep
+        # a blue-grey trace, untouched edges stay dark, path edges wait for final.
         for edge_item in self.edges.values():
             if edge_item in final_items:
                 continue
-            edge_item.set_state("not_in_path")
+            if edge_item in tree_items or edge_item in considered_items:
+                edge_item.set_state("considered")
+            else:
+                edge_item.set_state("default")
 
         # Stagger the path node/edge "final" reveal source -> target.
         callbacks = []
@@ -928,9 +935,9 @@ class GraphView(QGraphicsView):
             if frame.is_final and frame.path and node_id in frame.path:
                 state = "final"
             elif frame.is_final and frame.path:
-                # Two-tone final: chosen path is bright cyan; everything else is
-                # neutral gray. Red is reserved for path-less unreachable runs.
-                state = "not_in_path"
+                # Final target view has three tiers: answer path, searched but
+                # not in the answer, and untouched.
+                state = "not_in_path" if distance < INF else "default"
             elif frame.is_final:
                 state = "unreachable" if distance == INF else "not_in_path"
             elif node_id == frame.current:
@@ -960,12 +967,12 @@ class GraphView(QGraphicsView):
 
         for edge_item in self.edges.values():
             if frame.is_final and frame.path:
-                # Two-tone final: chosen path is bright cyan; every other edge
-                # and weight label fades to neutral gray.
                 if edge_item in final_items:
                     state = "final"
+                elif edge_item in tree_items or edge_item in considered_items:
+                    state = "considered"
                 else:
-                    state = "not_in_path"
+                    state = "default"
             elif frame.is_final:
                 start_distance = frame.distances.get(edge_item.start_node.node_id, INF)
                 end_distance = frame.distances.get(edge_item.end_node.node_id, INF)

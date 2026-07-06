@@ -75,7 +75,30 @@ def test_final_frame_highlights_path_nodes_and_edges(qapp):
     assert window.graph_view._edge_item_for("B", "F")._state == "final"
     for edge_key, edge_item in window.graph_view.edges.items():
         if edge_key not in {("A", "C"), ("B", "C"), ("B", "F")}:
-            assert edge_item._state == "not_in_path"
+            assert edge_item._state == "considered"
+    window.close()
+
+
+def test_final_frame_keeps_untouched_subgraph_dark(qapp):
+    from dijkstra_dashboard.core.graph import Graph
+
+    graph = Graph()
+    graph.add_node("A", x=0, y=0)
+    graph.add_node("B", x=80, y=0)
+    graph.add_node("X", x=0, y=80)
+    graph.add_node("Y", x=80, y=80)
+    graph.add_edge("A", "B", 1)
+    graph.add_edge("X", "Y", 1)
+
+    window = MainWindow()
+    window.graph_view.set_graph(graph)
+    _load(window, start="A", target="B", graph=graph)
+    window.playback.seek(window.playback.total)
+
+    assert window.graph_view._edge_item_for("A", "B")._state == "final"
+    assert window.graph_view._edge_item_for("X", "Y")._state == "default"
+    assert window.graph_view.nodes["X"]._state == "default"
+    assert window.graph_view.nodes["Y"]._state == "default"
     window.close()
 
 

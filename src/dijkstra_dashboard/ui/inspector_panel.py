@@ -106,11 +106,12 @@ class InspectorPanel(QWidget):
 
     def _rebuild_legend(self, theme):
         entries = (
+            ("Unseen", theme.node_style("default").ring),
             ("Current", theme.node_style("current").ring),
             ("Frontier", theme.node_style("frontier").ring),
             ("Visited", theme.node_style("visited").ring),
             ("Final path", theme.node_style("final").ring),
-            ("Not in path", theme.node_style("not_in_path").ring),
+            ("Searched off-path", theme.node_style("not_in_path").ring),
             ("Unreachable", theme.node_style("unreachable").ring),
         )
         self.legend.setText(
