@@ -804,16 +804,27 @@ class GraphView(QGraphicsView):
             if current is not None and current in self.nodes:
                 self.animator.pop_scale(self.nodes[current], self.animator.scaled(300))
         elif kind == "relax":
-            # F1: a travel dot fires ONLY when the step carries an edge that
+            # F1: the travel effect fires ONLY when the step carries an edge that
             # resolves to a live item (bellman-ford's source seed has edge=None).
             edge = step.get("edge")
             if edge is not None:
                 item = self._edge_item_for(edge[0], edge[1])
                 if item is not None:
-                    color = current_theme().edge_style("relaxed").stroke
-                    self.animator.travel_dot(
-                        self.scene, item.curve_path(), color, self.animator.scaled(320)
-                    )
+                    theme = current_theme()
+                    color = theme.edge_style("relaxed").stroke
+                    if theme.glow_enabled:
+                        # Neon: a directional lightning bolt shoots source->target.
+                        self.animator.lightning(
+                            self.scene, item.curve_path(), color, self.animator.scaled(340)
+                        )
+                    else:
+                        self.animator.travel_dot(
+                            self.scene, item.curve_path(), color, self.animator.scaled(320)
+                        )
+                    # Pop the destination so the receiving node reads instantly.
+                    target_item = self.nodes.get(step.get("node"))
+                    if target_item is not None:
+                        self.animator.pop_scale(target_item, self.animator.scaled(220))
 
     def _render_final_staggered(self, frame):
         final_node_ids = set(frame.path)

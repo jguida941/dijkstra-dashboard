@@ -16,12 +16,14 @@ of node/edge visual state.
 """
 from __future__ import annotations
 
+import math
+import random
 from typing import Callable
 
 from PyQt6 import sip
-from PyQt6.QtCore import Qt, QVariantAnimation, QEasingCurve, QObject
-from PyQt6.QtGui import QBrush, QColor, QPen
-from PyQt6.QtWidgets import QGraphicsEllipseItem
+from PyQt6.QtCore import Qt, QPointF, QVariantAnimation, QEasingCurve, QObject
+from PyQt6.QtGui import QBrush, QColor, QPainterPath, QPen
+from PyQt6.QtWidgets import QGraphicsEllipseItem, QGraphicsPathItem
 
 
 class AnimationCoordinator(QObject):
@@ -34,6 +36,7 @@ class AnimationCoordinator(QObject):
         # key -> current anim, for "restart replaces + snaps the old one".
         self._keyed: dict[object, QVariantAnimation] = {}
         self._interval_ms: int = 500
+        self._bolt_counter: int = 0
 
     # -- interval bookkeeping ------------------------------------------------
     def set_interval(self, ms: int) -> None:
@@ -149,6 +152,69 @@ class AnimationCoordinator(QObject):
             if not sip.isdeleted(dot) and dot.scene() is not None:
                 dot.scene().removeItem(dot)
 
+        anim.valueChanged.connect(on_tick)
+        self._register(anim, finalize)
+        anim.start()
+        return anim
+
+    def lightning(self, scene, curve_path, color, duration: int) -> QVariantAnimation:
+        """A flickering jagged bolt that sweeps source->target along ``curve_path``.
+
+        Two scene items (glow underlay + bright core) share a jittered polyline
+        whose head advances with the tween and whose tail trails ~30% behind —
+        the direction of travel is unmistakable. Both items are removed on
+        finish AND on cancel via one finalize.
+        """
+        core_color = QColor(color)
+        glow_color = QColor(color)
+        glow_color.setAlpha(70)
+
+        halo_item = QGraphicsPathItem()
+        halo_item.setPen(QPen(glow_color, 7.0, Qt.PenStyle.SolidLine,
+                              Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        halo_item.setZValue(4.4)
+        bolt_item = QGraphicsPathItem()
+        bolt_item.setPen(QPen(core_color, 2.2, Qt.PenStyle.SolidLine,
+                              Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        bolt_item.setZValue(4.5)
+        scene.addItem(halo_item)
+        scene.addItem(bolt_item)
+
+        self._bolt_counter += 1
+        rng = random.Random(self._bolt_counter)
+        segments = 12
+
+        def on_tick(value) -> None:
+            for item in (halo_item, bolt_item):
+                if sip.isdeleted(item) or item.scene() is None:
+                    return
+            head = min(1.0, float(value))
+            tail = max(0.0, head - 0.30)
+            points = []
+            for i in range(segments + 1):
+                p = tail + (head - tail) * (i / segments)
+                base = curve_path.pointAtPercent(p)
+                # Perpendicular jitter, zero at the ends so the bolt stays
+                # anchored to the nodes; re-rolled every tick = flicker.
+                angle = math.radians(curve_path.angleAtPercent(p) + 90.0)
+                amp = 5.5 * math.sin(math.pi * i / segments) * (rng.random() * 2.0 - 1.0)
+                points.append(QPointF(base.x() + math.cos(angle) * amp,
+                                      base.y() - math.sin(angle) * amp))
+            jag = QPainterPath(points[0])
+            for pt in points[1:]:
+                jag.lineTo(pt)
+            halo_item.setPath(jag)
+            bolt_item.setPath(jag)
+
+        def finalize() -> None:
+            for item in (halo_item, bolt_item):
+                if not sip.isdeleted(item) and item.scene() is not None:
+                    item.scene().removeItem(item)
+
+        anim = QVariantAnimation(self)
+        anim.setStartValue(0.0)
+        anim.setEndValue(1.0)
+        anim.setDuration(max(1, int(duration)))
         anim.valueChanged.connect(on_tick)
         self._register(anim, finalize)
         anim.start()

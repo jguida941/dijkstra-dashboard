@@ -273,3 +273,19 @@ def test_clear_run_decorations_cancels_animations(qapp):
 
     assert view.animator._registry == {}
     assert node.scale() == 1.0
+
+
+@pytest.mark.ui
+def test_lightning_items_removed_on_cancel(qapp):
+    scene = QGraphicsScene()
+    path = QPainterPath(QPointF(0, 0))
+    path.lineTo(QPointF(120, 0))
+    coordinator = AnimationCoordinator()
+    baseline = len(scene.items())
+
+    coordinator.lightning(scene, path, "#00e5ff", 400)
+    assert len(scene.items()) == baseline + 2  # glow underlay + core bolt
+
+    coordinator.cancel_all()
+    assert len(scene.items()) == baseline
+    assert coordinator._registry == {}
