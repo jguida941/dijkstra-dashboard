@@ -11,6 +11,8 @@ inside the SVG, which is accepted.
 """
 from __future__ import annotations
 
+import os
+
 from PyQt6.QtCore import QRectF, QSize, Qt
 from PyQt6.QtGui import QImage, QPainter
 
@@ -87,7 +89,10 @@ def export_scene_svg(scene, path) -> bool:
     generator.setDescription("Exported from the Dijkstra Path Visualizer.")
 
     painter = QPainter(generator)
+    if not painter.isActive():
+        # Qt could not open the output device (missing directory, permissions).
+        return False
     scene.render(painter, QRectF(0.0, 0.0, float(width), float(height)), source)
     painter.end()
 
-    return True
+    return os.path.exists(str(path)) and os.path.getsize(str(path)) > 0

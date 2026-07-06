@@ -345,6 +345,14 @@ class GraphView(QGraphicsView):
         self.set_graph(graph)
 
     def set_graph(self, graph):
+        # Flush pending tweens BEFORE swapping the model: a mid-flight layout
+        # finalize moves the OLD node items, and their itemChange writes
+        # positions through _on_node_moved into self.graph — with the new graph
+        # already assigned, old node ids would corrupt or crash it.
+        self.animator.cancel_all()
+        for node in self.nodes.values():
+            node.stop_pulse()
+
         self.graph = graph
         self.pending_edge_start = None
         # Every node item is about to be rebuilt; forget any in-flight drag so a
@@ -353,11 +361,6 @@ class GraphView(QGraphicsView):
         self._drag_node = None
         self._clear_message()
 
-        # Clear old scene. Flush pending tweens onto still-live items first so
-        # no finalize runs against a deleted node/edge after scene.clear().
-        self.animator.cancel_all()
-        for node in self.nodes.values():
-            node.stop_pulse()
         self.scene.clear()
         self.nodes.clear()
         self.edges.clear()
@@ -972,6 +975,22 @@ class GraphView(QGraphicsView):
             pos = self.nodes[node_id].pos()
             starts[node_id] = (pos.x(), pos.y())
 
+        completed = {"done": False}
+
+        def complete_once():
+            # Completion rides the tween's apply(1.0), which the coordinator
+            # guarantees on BOTH natural finish and cancellation (finalize) —
+            # so a theme switch / scrub / set_graph mid-layout still commits
+            # the mutation, invalidates the run, and stays undoable. The flag
+            # dedupes the natural-finish case (last tick + finalize both land
+            # on progress 1.0).
+            if completed["done"]:
+                return
+            completed["done"] = True
+            self.fit_to_content()
+            self.graph_changed.emit()
+            self._commit_mutation("Apply layout")
+
         def apply(progress):
             for node_id, (end_x, end_y) in targets.items():
                 item = self.nodes.get(node_id)
@@ -982,16 +1001,10 @@ class GraphView(QGraphicsView):
                     start_x + (end_x - start_x) * progress,
                     start_y + (end_y - start_y) * progress,
                 ))
+            if progress >= 1.0:
+                complete_once()
 
-        def on_finished():
-            # Runs only on natural completion (stop()/cancel do not emit
-            # ``finished``), so the emit stays exactly-once per completed layout.
-            self.fit_to_content()
-            self.graph_changed.emit()
-            self._commit_mutation("Apply layout")
-
-        anim = self.animator.animate_float("layout", 0.0, 1.0, duration, apply)
-        anim.finished.connect(on_finished)
+        self.animator.animate_float("layout", 0.0, 1.0, duration, apply)
 
     def get_edge_weight(self, start, end):
         edge = self._edge_item_for(start, end)
