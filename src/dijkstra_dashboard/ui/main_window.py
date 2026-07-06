@@ -11,7 +11,8 @@ from .controls_panel import ControlsPanel
 from .inspector_panel import InspectorPanel
 from .narration import DISPLAY_NAMES, comparison_line, describe_step, describe_summary, run_header
 from .playback_controller import PlaybackController
-from .theme import current_theme, get_theme_manager, make_app_icon
+from .theme import PREVIEW_THEME_ID, current_theme, get_theme_manager, make_app_icon
+from .theme_editor import ThemeEditorDialog
 from .random_graph_dialog import RandomGraphDialog
 from .recent_files import RecentFiles
 from .export import export_scene_png, export_scene_svg, HAS_SVG
@@ -238,26 +239,17 @@ class MainWindow(QMainWindow):
         edit_menu.addAction(redo_action)
 
         view_menu = self.menuBar().addMenu("View")
-        theme_menu = view_menu.addMenu("Theme")
+        self.theme_menu = view_menu.addMenu("Theme")
         manager = get_theme_manager()
         self.theme_action_group = QActionGroup(self)
         self.theme_action_group.setExclusive(True)
         self.theme_actions = {}
-        for theme_id in manager.theme_ids():
-            theme = manager.THEMES[theme_id]
-            action = QAction(theme.name, self)
-            action.setCheckable(True)
-            action.setData(theme_id)
-            action.setChecked(theme_id == manager.current.id)
-            action.triggered.connect(
-                lambda checked, selected_theme_id=theme_id: manager.set_theme(selected_theme_id, persist=True)
-                if checked else None
-            )
-            self.theme_action_group.addAction(action)
-            theme_menu.addAction(action)
-            self.theme_actions[theme_id] = action
+        self._rebuild_theme_menu()
 
         manager.theme_changed.connect(self._sync_theme_actions)
+        # Custom themes register/unregister at runtime (editor save/preview) — the
+        # Theme submenu rebuilds so new entries appear and stale ones disappear.
+        manager.themes_changed.connect(self._rebuild_theme_menu)
 
         view_menu.addSeparator()
         zoom_in_action = QAction("Zoom In", self)
@@ -282,6 +274,11 @@ class MainWindow(QMainWindow):
         self.show_labels_action.setChecked(True)
         self.show_labels_action.toggled.connect(self.graph_view.set_badges_visible)
         view_menu.addAction(self.show_labels_action)
+
+        view_menu.addSeparator()
+        edit_theme_action = QAction("Edit Theme…", self)
+        edit_theme_action.triggered.connect(self.open_theme_editor)
+        view_menu.addAction(edit_theme_action)
 
         # Graph menu sits between View and Help.
         graph_menu = self.menuBar().addMenu("Graph")
@@ -320,11 +317,43 @@ class MainWindow(QMainWindow):
             app.setStyleSheet(theme.qss())
         self.setWindowIcon(make_app_icon(theme))
 
+    def _rebuild_theme_menu(self):
+        # Rebuild the Theme submenu from the manager's live registry, reusing the
+        # one shared exclusive action group. The reserved live-preview id is never
+        # listed. Called at setup and whenever the registry changes.
+        manager = get_theme_manager()
+        for action in self.theme_actions.values():
+            self.theme_action_group.removeAction(action)
+            action.deleteLater()
+        self.theme_menu.clear()
+        self.theme_actions = {}
+        for theme_id in manager.theme_ids():
+            if theme_id == PREVIEW_THEME_ID:
+                continue
+            theme = manager.THEMES[theme_id]
+            action = QAction(theme.name, self)
+            action.setCheckable(True)
+            action.setData(theme_id)
+            action.setChecked(theme_id == manager.current.id)
+            action.triggered.connect(
+                lambda checked, selected_theme_id=theme_id: manager.set_theme(selected_theme_id, persist=True)
+                if checked else None
+            )
+            self.theme_action_group.addAction(action)
+            self.theme_menu.addAction(action)
+            self.theme_actions[theme_id] = action
+
     def _sync_theme_actions(self, theme):
+        # Tolerates a current id with no action (e.g. the live-preview theme while
+        # the editor is open): in that case no entry ends up checked.
         for theme_id, action in self.theme_actions.items():
             blocked = action.blockSignals(True)
             action.setChecked(theme_id == theme.id)
             action.blockSignals(blocked)
+
+    def open_theme_editor(self):
+        dialog = ThemeEditorDialog(self)
+        dialog.exec()
 
     def _setup_shortcuts(self):
         # WindowShortcut transport controls; guards inside each handler bail when

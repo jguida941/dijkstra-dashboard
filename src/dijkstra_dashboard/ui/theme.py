@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+import json
+from dataclasses import asdict, dataclass
+from pathlib import Path
 
 from PyQt6.QtCore import QObject, QPointF, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QBrush, QFont, QFontDatabase, QIcon, QPainter, QPalette, QPen, QPixmap
@@ -12,6 +14,19 @@ NODE_STATES = ("default", "frontier", "current", "visited", "final", "not_in_pat
 EDGE_STATES = ("default", "considered", "relaxed", "final", "not_in_path", "unreachable")
 NODE_STATE_ALIASES = {"idle": "default", "unused": "not_in_path"}
 EDGE_STATE_ALIASES = {"idle": "default", "unused": "not_in_path", "visited": "relaxed"}
+
+#: Reserved id used for the theme editor's throwaway live-preview theme. It is
+#: registered/unregistered by the editor and never shown in the Theme menu.
+PREVIEW_THEME_ID = "custom-preview"
+
+#: Scalar (non-collection) Theme fields, split by how they round-trip through a
+#: JSON dict. font_pref (tuple), node_styles and edge_styles are handled apart.
+_THEME_STR_FIELDS = (
+    "canvas_bg_top", "canvas_bg_bottom", "window_bg", "panel_bg", "base_bg",
+    "text", "muted_text", "accent", "success", "error", "warning",
+    "button_bg", "button_text", "button_border", "highlight", "highlight_text",
+)
+_THEME_BOOL_FIELDS = ("dark", "glow_enabled")
 
 _font_family_cache: dict[tuple[str, ...], str] = {}
 _theme_manager: ThemeManager | None = None
@@ -326,17 +341,17 @@ def _build_themes() -> dict[str, Theme]:
                 "current": NodeStyle(fill="#00e5ff", ring="#ffffff", ring_width=3, text="#001018", glow="#a000e5ff"),
                 "visited": NodeStyle(fill="#0d6d86", ring="#00e5ff", ring_width=3, text="#eaffff", glow="#6000e5ff"),
                 "final": NodeStyle(fill="#124a1a", ring="#39ff14", ring_width=3, text="#eaffe6", glow="#8039ff14"),
-                "not_in_path": NodeStyle(fill="#38101c", ring="#ff0044", ring_width=2, text="#ff9fb4", glow="#38ff0044", opacity=0.95),
+                "not_in_path": NodeStyle(fill="#0f2830", ring="#2b7a8c", ring_width=2, text="#9fd4de", opacity=0.85),
                 "unreachable": NodeStyle(fill="#3a1020", ring="#ff2d55", ring_width=2.5, text="#ffb3c2", glow="#40ff2d55"),
             },
             # Neon chips are BARE numbers (fully transparent pill) — the pill
             # chrome only appears while a chip is selected.
             edge_styles={
                 "default": EdgeStyle(stroke="#4a4a62", width=2, label_fg="#cfcfe0", chip_bg="#00000000", chip_border="#00000000", z=0),
-                "considered": EdgeStyle(stroke="#3f6a72", width=2, label_fg="#9fd7de", chip_bg="#00000000", chip_border="#00000000", z=0.2),
-                "relaxed": EdgeStyle(stroke="#00e5ff", width=3, label_fg="#aef4ff", chip_bg="#00000000", chip_border="#00000000", halo="#5500e5ff", z=0.5),
+                "considered": EdgeStyle(stroke="#2f4a55", width=2.5, label_fg="#8fb8c2", chip_bg="#00000000", chip_border="#00000000", z=0.2),
+                "relaxed": EdgeStyle(stroke="#00e5ff", width=2.5, label_fg="#aef4ff", chip_bg="#00000000", chip_border="#00000000", halo="#5500e5ff", z=0.5),
                 "final": EdgeStyle(stroke="#39ff14", width=3.5, label_fg="#b6ff9e", chip_bg="#00000000", chip_border="#00000000", halo="#6039ff14", z=1),
-                "not_in_path": EdgeStyle(stroke="#ff0044", width=2, label_fg="#ff4d6b", chip_bg="#00000000", chip_border="#00000000", opacity=0.9, z=0),
+                "not_in_path": EdgeStyle(stroke="#23606f", width=2, label_fg="#7fc2cf", chip_bg="#00000000", chip_border="#00000000", opacity=0.8, z=0),
                 "unreachable": EdgeStyle(stroke="#ff2d55", width=2, label_fg="#ffb3c2", chip_bg="#00000000", chip_border="#00000000", z=0),
             },
         ),
@@ -423,14 +438,105 @@ def _build_themes() -> dict[str, Theme]:
     }
 
 
+class _ThemesRegistry:
+    """Descriptor backing ``ThemeManager.THEMES``.
+
+    Historically ``THEMES`` was a plain class-level dict, read both as
+    ``ThemeManager.THEMES["neon-dark"]`` (class access, all over the tests) and
+    as ``self.THEMES`` / ``manager.THEMES`` (instance access, in the engine).
+    Phase 9 makes the registry per-instance mutable (custom themes register into
+    one manager without leaking into others), so this descriptor preserves BOTH
+    long-standing access patterns:
+
+    * class access returns the immutable built-in registry, so every existing
+      ``ThemeManager.THEMES[...]`` call site keeps resolving the built-ins;
+    * instance access returns that manager's live registry (built-ins plus any
+      runtime-registered custom themes).
+
+    Read-only: rebinding is refused so nobody silently swaps the registry out.
+    """
+
+    def __get__(self, obj, objtype=None):
+        if obj is None:
+            return objtype.BUILTIN_THEMES
+        return obj._themes
+
+    def __set__(self, obj, value):
+        raise AttributeError("ThemeManager.THEMES is read-only")
+
+
 class ThemeManager(QObject):
     theme_changed = pyqtSignal(object)
+    #: Emitted (no args) when the set of registered theme ids changes, so the
+    #: View > Theme menu can rebuild. NOT emitted for value-only replacements of
+    #: an already-registered id (e.g. repeated live-preview edits).
+    themes_changed = pyqtSignal()
     LEGACY_THEME_ALIASES = {"cyberpunk": "neon-dark"}
-    THEMES = _build_themes()
+    #: Immutable source of the shipped themes. Instances copy this into a private
+    #: per-instance registry; class-level ``THEMES`` access returns this dict.
+    BUILTIN_THEMES = _build_themes()
+    THEMES = _ThemesRegistry()
 
     def __init__(self) -> None:
         super().__init__()
-        self._current = self.THEMES["neon-dark"]
+        # Per-instance copy so register/unregister never mutate the built-ins or
+        # bleed across managers. Class-level THEMES still exposes BUILTIN_THEMES.
+        self._themes: dict[str, Theme] = dict(self.BUILTIN_THEMES)
+        self._current = self._themes["neon-dark"]
+
+    def register_theme(self, theme: Theme) -> None:
+        """Insert or replace ``theme`` in this manager's registry.
+
+        A genuinely new id emits ``themes_changed`` (menu rebuild). Replacing the
+        currently-active theme (the live-preview case, where ``set_theme`` would
+        no-op on the same id) re-applies it via ``theme_changed`` so listeners
+        refresh their palette/canvas.
+        """
+        is_new = theme.id not in self._themes
+        self._themes[theme.id] = theme
+        if self._current.id == theme.id and self._current is not theme:
+            self._current = theme
+            self.theme_changed.emit(self._current)
+        if is_new:
+            self.themes_changed.emit()
+
+    def unregister_theme(self, theme_id: str) -> None:
+        """Remove a custom theme from the registry. Built-in ids are refused."""
+        if theme_id in self.BUILTIN_THEMES:
+            raise ValueError(f"Cannot unregister built-in theme: {theme_id}")
+        if theme_id in self._themes:
+            del self._themes[theme_id]
+            self.themes_changed.emit()
+
+    def save_custom_theme(self, theme: Theme) -> Path:
+        """Persist ``theme`` as ``<id>.json`` under the custom theme dir and register it."""
+        directory = custom_theme_dir()
+        directory.mkdir(parents=True, exist_ok=True)
+        path = directory / f"{theme.id}.json"
+        tmp = path.with_name(f"{path.name}.tmp")
+        with tmp.open("w", encoding="utf-8") as handle:
+            json.dump(theme_to_dict(theme), handle, indent=2, ensure_ascii=True)
+            handle.write("\n")
+        tmp.replace(path)  # atomic-enough: never leaves a half-written file behind.
+        self.register_theme(theme)
+        return path
+
+    def load_custom_themes(self) -> None:
+        """Register every valid custom theme JSON on disk. Invalid files are skipped."""
+        directory = custom_theme_dir()
+        if not directory.is_dir():
+            return
+        for path in sorted(directory.glob("*.json")):
+            try:
+                with path.open("r", encoding="utf-8") as handle:
+                    data = json.load(handle)
+                theme = theme_from_dict(data)
+            except Exception:
+                continue  # corrupt/invalid file: skip silently, never crash boot.
+            # A custom file must never shadow a shipped built-in palette.
+            if theme.id in self.BUILTIN_THEMES:
+                continue
+            self.register_theme(theme)
 
     @property
     def current(self) -> Theme:
@@ -470,6 +576,152 @@ class ThemeManager(QObject):
         if resolved not in self.THEMES:
             resolved = "neon-dark"
         self._current = self.THEMES[resolved]
+
+
+def custom_theme_dir() -> Path:
+    """Directory holding persisted custom themes: ``<config dir>/themes``.
+
+    Derived from ``config.get_config_path()`` so the hermetic-config test fixture
+    (which points the config env var at a tmp dir) isolates it for free.
+    """
+    return config.get_config_path().parent / "themes"
+
+
+def theme_to_dict(theme: Theme) -> dict:
+    """Full JSON-able dict for a Theme (the inverse of ``theme_from_dict``)."""
+    return {
+        "id": theme.id,
+        "name": theme.name,
+        "dark": theme.dark,
+        "canvas_bg_top": theme.canvas_bg_top,
+        "canvas_bg_bottom": theme.canvas_bg_bottom,
+        "window_bg": theme.window_bg,
+        "panel_bg": theme.panel_bg,
+        "base_bg": theme.base_bg,
+        "text": theme.text,
+        "muted_text": theme.muted_text,
+        "accent": theme.accent,
+        "success": theme.success,
+        "error": theme.error,
+        "warning": theme.warning,
+        "button_bg": theme.button_bg,
+        "button_text": theme.button_text,
+        "button_border": theme.button_border,
+        "highlight": theme.highlight,
+        "highlight_text": theme.highlight_text,
+        "font_pref": list(theme.font_pref),
+        "glow_enabled": theme.glow_enabled,
+        "node_styles": {state: asdict(style) for state, style in theme.node_styles.items()},
+        "edge_styles": {state: asdict(style) for state, style in theme.edge_styles.items()},
+    }
+
+
+def _pick_str(data: dict, key: str, default: str) -> str:
+    value = data.get(key, default)
+    return value if isinstance(value, str) else default
+
+
+def _pick_bool(data: dict, key: str, default: bool) -> bool:
+    if key in data and isinstance(data[key], bool):
+        return data[key]
+    return default
+
+
+def _pick_num(data: dict, key: str, default: float) -> float:
+    # Pass real numbers through unchanged (preserving int-ness for exact
+    # round-trips); reject bools and non-numbers back to the neon default.
+    if key in data:
+        value = data[key]
+        if not isinstance(value, bool) and isinstance(value, (int, float)):
+            return value
+    return default
+
+
+def _pick_nullable_str(data: dict, key: str, default):
+    # An explicit ``null`` is honored (glow/halo "none"), distinct from a missing
+    # key which defaults to the neon value.
+    if key in data:
+        value = data[key]
+        if value is None or isinstance(value, str):
+            return value
+    return default
+
+
+def theme_from_dict(data) -> Theme:
+    """Validating inverse of ``theme_to_dict``.
+
+    Missing fields default from the neon-dark built-in (per-field for chrome,
+    per-state-per-field for node/edge styles). Unknown keys are ignored. A
+    non-dict, or a missing/blank id or name, raises ValueError. Ids are literal
+    (no alias resolution here).
+    """
+    if not isinstance(data, dict):
+        raise ValueError("theme data must be a dict")
+
+    theme_id = data.get("id")
+    if not isinstance(theme_id, str) or not theme_id.strip():
+        raise ValueError("theme data requires a non-empty 'id'")
+    name = data.get("name")
+    if not isinstance(name, str) or not name.strip():
+        raise ValueError("theme data requires a non-empty 'name'")
+
+    default = ThemeManager.BUILTIN_THEMES["neon-dark"]
+
+    node_data = data.get("node_styles")
+    if not isinstance(node_data, dict):
+        node_data = {}
+    node_styles: dict[str, NodeStyle] = {}
+    for state in NODE_STATES:
+        base = default.node_styles[state]
+        raw = node_data.get(state)
+        if not isinstance(raw, dict):
+            raw = {}
+        node_styles[state] = NodeStyle(
+            fill=_pick_str(raw, "fill", base.fill),
+            ring=_pick_str(raw, "ring", base.ring),
+            ring_width=_pick_num(raw, "ring_width", base.ring_width),
+            text=_pick_str(raw, "text", base.text),
+            glow=_pick_nullable_str(raw, "glow", base.glow),
+            opacity=_pick_num(raw, "opacity", base.opacity),
+        )
+
+    edge_data = data.get("edge_styles")
+    if not isinstance(edge_data, dict):
+        edge_data = {}
+    edge_styles: dict[str, EdgeStyle] = {}
+    for state in EDGE_STATES:
+        base = default.edge_styles[state]
+        raw = edge_data.get(state)
+        if not isinstance(raw, dict):
+            raw = {}
+        edge_styles[state] = EdgeStyle(
+            stroke=_pick_str(raw, "stroke", base.stroke),
+            width=_pick_num(raw, "width", base.width),
+            label_fg=_pick_str(raw, "label_fg", base.label_fg),
+            chip_bg=_pick_str(raw, "chip_bg", base.chip_bg),
+            chip_border=_pick_str(raw, "chip_border", base.chip_border),
+            halo=_pick_nullable_str(raw, "halo", base.halo),
+            opacity=_pick_num(raw, "opacity", base.opacity),
+            z=_pick_num(raw, "z", base.z),
+        )
+
+    font_raw = data.get("font_pref")
+    if isinstance(font_raw, (list, tuple)) and font_raw and all(isinstance(x, str) for x in font_raw):
+        font_pref = tuple(font_raw)
+    else:
+        font_pref = default.font_pref
+
+    chrome = {field: _pick_str(data, field, getattr(default, field)) for field in _THEME_STR_FIELDS}
+    chrome.update({field: _pick_bool(data, field, getattr(default, field)) for field in _THEME_BOOL_FIELDS})
+
+    return Theme(
+        id=theme_id,
+        name=name,
+        font_pref=font_pref,
+        node_styles=node_styles,
+        edge_styles=edge_styles,
+        **chrome,
+    )
 
 
 def get_theme_manager() -> ThemeManager:

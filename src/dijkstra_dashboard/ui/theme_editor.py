@@ -1,0 +1,523 @@
+"""In-app theme editor with debounced live preview and custom-theme persistence.
+
+The dialog seeds a plain working dict from ``theme_to_dict(current_theme())`` and
+never mutates a (frozen) ``Theme`` directly: every edit updates the dict, and a
+200 ms debounce rebuilds a throwaway preview theme (registered under the reserved
+``custom-preview`` id) and applies it live. Cancel restores the pre-open theme and
+drops the preview; Save persists a real custom theme and switches to it.
+"""
+
+from __future__ import annotations
+
+import copy
+import re
+
+from PyQt6.QtCore import QRegularExpression, QTimer
+from PyQt6.QtGui import QColor, QRegularExpressionValidator
+from PyQt6.QtWidgets import (
+    QCheckBox,
+    QColorDialog,
+    QDialog,
+    QDoubleSpinBox,
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QPushButton,
+    QScrollArea,
+    QStackedWidget,
+    QVBoxLayout,
+    QWidget,
+)
+
+from .theme import (
+    EDGE_STATES,
+    NODE_STATES,
+    PREVIEW_THEME_ID,
+    current_theme,
+    get_theme_manager,
+    theme_from_dict,
+    theme_to_dict,
+)
+
+#: #RRGGBB or #AARRGGBB (case-insensitive).
+_HEX_PATTERN = r"^#([0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$"
+_HEX_RE = re.compile(_HEX_PATTERN)
+
+_PREVIEW_DEBOUNCE_MS = 200
+
+_CATEGORIES = ("Canvas & Chrome", "Node states", "Edge states", "Effects")
+
+#: Chrome color fields (label, working-dict key). None of these carry alpha.
+_CHROME_FIELDS = (
+    ("Canvas top", "canvas_bg_top"),
+    ("Canvas bottom", "canvas_bg_bottom"),
+    ("Window", "window_bg"),
+    ("Panel", "panel_bg"),
+    ("Base", "base_bg"),
+    ("Text", "text"),
+    ("Muted text", "muted_text"),
+    ("Accent", "accent"),
+    ("Success", "success"),
+    ("Error", "error"),
+    ("Warning", "warning"),
+    ("Button bg", "button_bg"),
+    ("Button text", "button_text"),
+    ("Button border", "button_border"),
+    ("Highlight", "highlight"),
+    ("Highlight text", "highlight_text"),
+)
+
+
+class _ColorRow(QWidget):
+    """A color swatch button + validated hex line-edit for one color field."""
+
+    def __init__(self, path, value, alpha, on_change, parent=None):
+        super().__init__(parent)
+        self._path = path
+        self._alpha = alpha
+        self._on_change = on_change  # callback(path, hex_text)
+        self._invalid = False
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        self._swatch = QPushButton()
+        self._swatch.setFixedWidth(40)
+        self._swatch.setFlat(True)
+        self._swatch.clicked.connect(self._open_picker)
+        self._edit = QLineEdit()
+        self._edit.setValidator(
+            QRegularExpressionValidator(QRegularExpression(_HEX_PATTERN), self._edit)
+        )
+        self._edit.editingFinished.connect(self._on_edit_finished)
+        layout.addWidget(self._swatch)
+        layout.addWidget(self._edit)
+
+        self.set_value(value)
+
+    # -- display -------------------------------------------------------
+    def set_value(self, value):
+        text = value if isinstance(value, str) else ""
+        self._edit.blockSignals(True)
+        self._edit.setText(text)
+        self._edit.blockSignals(False)
+        self._paint_swatch(text)
+        self.mark_invalid(False)
+
+    def _paint_swatch(self, text):
+        color = QColor(text) if _HEX_RE.match(text or "") else QColor("#00000000")
+        # Draw the opaque view of the color; the border keeps it visible on any bg.
+        opaque = QColor(color.red(), color.green(), color.blue())
+        self._swatch.setStyleSheet(
+            f"background-color: {opaque.name()}; border: 1px solid #808080; border-radius: 3px;"
+        )
+
+    def mark_invalid(self, invalid):
+        self._invalid = bool(invalid)
+        self._edit.setStyleSheet("border: 1px solid #ff2d55;" if invalid else "")
+
+    def is_invalid(self):
+        return self._invalid
+
+    # -- input ---------------------------------------------------------
+    def _open_picker(self):
+        text = self._edit.text().strip()
+        initial = QColor(text) if _HEX_RE.match(text) else QColor("#ffffffff")
+        options = (
+            QColorDialog.ColorDialogOption.ShowAlphaChannel
+            if self._alpha
+            else QColorDialog.ColorDialogOption(0)
+        )
+        chosen = QColorDialog.getColor(initial, self, "Select color", options)
+        if not chosen.isValid():
+            return
+        fmt = QColor.NameFormat.HexArgb if self._alpha else QColor.NameFormat.HexRgb
+        self._on_change(self._path, chosen.name(fmt))
+
+    def _on_edit_finished(self):
+        self._on_change(self._path, self._edit.text().strip())
+
+
+class ThemeEditorDialog(QDialog):
+    """Modal editor over a working copy of the current theme, with live preview."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Edit Theme")
+        self.setModal(True)
+
+        self._manager = get_theme_manager()
+        self._original_id = self._manager.current.id
+        self._seed = theme_to_dict(current_theme())
+        self._working = copy.deepcopy(self._seed)
+        self._saved = False
+
+        # Per-path widget registries so reset/refresh can repaint every control.
+        self._color_rows: dict[tuple, _ColorRow] = {}
+        self._spins: dict[tuple, QDoubleSpinBox] = {}
+        self._none_checks: dict[tuple, QCheckBox] = {}
+        self._glow_enabled_check: QCheckBox | None = None
+
+        self._preview_timer = QTimer(self)
+        self._preview_timer.setSingleShot(True)
+        self._preview_timer.setInterval(_PREVIEW_DEBOUNCE_MS)
+        self._preview_timer.timeout.connect(self._apply_preview)
+
+        self._build_ui()
+        self._refresh_all_widgets()
+
+    # ------------------------------------------------------------------
+    # Working-dict access helpers
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _walk(container, path):
+        node = container
+        for key in path:
+            node = node[key]
+        return node
+
+    def _get(self, path):
+        return self._walk(self._working, path)
+
+    def _assign(self, path, value):
+        node = self._working
+        for key in path[:-1]:
+            node = node[key]
+        node[path[-1]] = value
+
+    # ------------------------------------------------------------------
+    # Edit API (also the programmatic hook used by tests)
+    # ------------------------------------------------------------------
+    def _set_color(self, path, value):
+        """Raw setter into the working dict (marks dirty + schedules preview)."""
+        self._set_value(path, value)
+
+    def _set_value(self, path, value):
+        self._assign(path, value)
+        self._mark_dirty()
+
+    def _edit_hex(self, path, text):
+        """Validated hex entry: commit on match, else mark the field and keep the dict."""
+        text = (text or "").strip()
+        row = self._color_rows.get(path)
+        if not _HEX_RE.match(text):
+            if row is not None:
+                row.mark_invalid(True)
+            return False
+        self._set_value(path, text)
+        if row is not None:
+            row.set_value(text)
+        return True
+
+    def _mark_dirty(self):
+        self._preview_timer.start()
+
+    # ------------------------------------------------------------------
+    # Live preview
+    # ------------------------------------------------------------------
+    def _apply_preview(self):
+        preview_data = dict(self._working)
+        preview_data["id"] = PREVIEW_THEME_ID
+        try:
+            preview = theme_from_dict(preview_data)
+        except Exception:
+            return  # a transiently-invalid working state simply skips this tick.
+        self._manager.register_theme(preview)
+        self._manager.set_theme(PREVIEW_THEME_ID, persist=False)
+
+    def _flush_preview(self):
+        """Test hook: apply any pending preview synchronously."""
+        self._preview_timer.stop()
+        self._apply_preview()
+
+    def _drop_preview(self):
+        if PREVIEW_THEME_ID in self._manager.theme_ids():
+            try:
+                self._manager.unregister_theme(PREVIEW_THEME_ID)
+            except ValueError:
+                pass
+
+    # ------------------------------------------------------------------
+    # Slug / naming
+    # ------------------------------------------------------------------
+    def _slugify(self, name):
+        base = re.sub(r"[^a-z0-9]+", "-", (name or "").strip().lower()).strip("-") or "custom"
+        reserved = set(self._manager.BUILTIN_THEMES) | {PREVIEW_THEME_ID}
+        return f"{base}-2" if base in reserved else base
+
+    def _current_slug(self):
+        return self._slugify(self._name_edit.text())
+
+    def _on_name_changed(self, text):
+        slug = self._current_slug()
+        self._slug_label.setText(f"id: {slug}")
+        self._working["name"] = text
+        self._working["id"] = slug
+
+    # ------------------------------------------------------------------
+    # UI construction
+    # ------------------------------------------------------------------
+    def _build_ui(self):
+        outer = QVBoxLayout(self)
+
+        # Top row: name + derived id slug + note.
+        top = QHBoxLayout()
+        top.addWidget(QLabel("Name:"))
+        self._name_edit = QLineEdit(self._seed.get("name", ""))
+        self._name_edit.textChanged.connect(self._on_name_changed)
+        top.addWidget(self._name_edit, stretch=1)
+        self._slug_label = QLabel()
+        top.addWidget(self._slug_label)
+        note = QLabel("(Based on current theme)")
+        note.setEnabled(False)
+        top.addWidget(note)
+        outer.addLayout(top)
+
+        # Body: category list on the left, scrolling form on the right.
+        body = QHBoxLayout()
+        self._category_list = QListWidget()
+        self._category_list.addItems(_CATEGORIES)
+        self._category_list.setMaximumWidth(160)
+        body.addWidget(self._category_list)
+
+        self._stack = QStackedWidget()
+        for name in _CATEGORIES:
+            scroll = QScrollArea()
+            scroll.setWidgetResizable(True)
+            scroll.setWidget(self._build_category_page(name))
+            self._stack.addWidget(scroll)
+        body.addWidget(self._stack, stretch=1)
+        outer.addLayout(body, stretch=1)
+
+        self._category_list.currentRowChanged.connect(self._stack.setCurrentIndex)
+        self._category_list.setCurrentRow(0)
+
+        # Inline error label (never a modal box).
+        self._error_label = QLabel("")
+        self._error_label.setStyleSheet("color: #ff2d55;")
+        self._error_label.setWordWrap(True)
+        outer.addWidget(self._error_label)
+
+        # Buttons.
+        buttons = QHBoxLayout()
+        reset_button = QPushButton("Reset section")
+        reset_button.clicked.connect(self._reset_section)
+        buttons.addWidget(reset_button)
+        buttons.addStretch(1)
+        save_button = QPushButton("Save")
+        save_button.clicked.connect(self._on_save)
+        buttons.addWidget(save_button)
+        cancel_button = QPushButton("Cancel")
+        cancel_button.clicked.connect(self.reject)
+        buttons.addWidget(cancel_button)
+        outer.addLayout(buttons)
+
+        # Seed the slug label from the initial name.
+        self._on_name_changed(self._name_edit.text())
+
+    def _build_category_page(self, name):
+        if name == "Canvas & Chrome":
+            return self._build_chrome_page()
+        if name == "Node states":
+            return self._build_node_page()
+        if name == "Edge states":
+            return self._build_edge_page()
+        return self._build_effects_page()
+
+    def _build_chrome_page(self):
+        page = QWidget()
+        form = QFormLayout(page)
+        for label, key in _CHROME_FIELDS:
+            form.addRow(label, self._color_row((key,), alpha=False))
+        return page
+
+    def _build_node_page(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        for state in NODE_STATES:
+            group = QGroupBox(state)
+            form = QFormLayout(group)
+            form.addRow("Fill", self._color_row(("node_styles", state, "fill"), alpha=False))
+            form.addRow("Ring", self._color_row(("node_styles", state, "ring"), alpha=False))
+            form.addRow("Text", self._color_row(("node_styles", state, "text"), alpha=False))
+            form.addRow("Ring width", self._num_spin(("node_styles", state, "ring_width"), 0.0, 12.0, 0.5))
+            form.addRow("Glow", self._nullable_color_row(("node_styles", state, "glow")))
+            form.addRow("Opacity", self._num_spin(("node_styles", state, "opacity"), 0.0, 1.0, 0.05))
+            layout.addWidget(group)
+        layout.addStretch(1)
+        return page
+
+    def _build_edge_page(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        for state in EDGE_STATES:
+            group = QGroupBox(state)
+            form = QFormLayout(group)
+            form.addRow("Stroke", self._color_row(("edge_styles", state, "stroke"), alpha=False))
+            form.addRow("Label", self._color_row(("edge_styles", state, "label_fg"), alpha=False))
+            form.addRow("Chip bg", self._color_row(("edge_styles", state, "chip_bg"), alpha=True))
+            form.addRow("Chip border", self._color_row(("edge_styles", state, "chip_border"), alpha=True))
+            form.addRow("Width", self._num_spin(("edge_styles", state, "width"), 0.0, 12.0, 0.5))
+            form.addRow("Z", self._num_spin(("edge_styles", state, "z"), -5.0, 5.0, 0.1))
+            form.addRow("Halo", self._nullable_color_row(("edge_styles", state, "halo")))
+            form.addRow("Opacity", self._num_spin(("edge_styles", state, "opacity"), 0.0, 1.0, 0.05))
+            layout.addWidget(group)
+        layout.addStretch(1)
+        return page
+
+    def _build_effects_page(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        self._glow_enabled_check = QCheckBox("Enable glow effects")
+        self._glow_enabled_check.toggled.connect(
+            lambda checked: self._set_value(("glow_enabled",), bool(checked))
+        )
+        layout.addWidget(self._glow_enabled_check)
+        explain = QLabel(
+            "Gates node glow, the current-node pulse, and the final-path lightning. "
+            "Per-state glow/halo colors still apply per node and edge above."
+        )
+        explain.setWordWrap(True)
+        explain.setEnabled(False)
+        layout.addWidget(explain)
+        layout.addStretch(1)
+        return page
+
+    # -- widget factories (register into the per-path maps) ------------
+    def _color_row(self, path, alpha):
+        row = _ColorRow(path, self._get(path), alpha, self._edit_hex)
+        self._color_rows[path] = row
+        return row
+
+    def _nullable_color_row(self, path):
+        container = QWidget()
+        line = QHBoxLayout(container)
+        line.setContentsMargins(0, 0, 0, 0)
+        value = self._get(path)
+        row = _ColorRow(path, value, alpha=True, on_change=self._edit_hex)
+        self._color_rows[path] = row
+        none_check = QCheckBox("none")
+        none_check.setChecked(value is None)
+        row.setEnabled(value is not None)
+        none_check.toggled.connect(lambda checked, p=path: self._on_none_toggled(p, checked))
+        self._none_checks[path] = none_check
+        line.addWidget(row, stretch=1)
+        line.addWidget(none_check)
+        return container
+
+    def _on_none_toggled(self, path, checked):
+        row = self._color_rows.get(path)
+        if checked:
+            if row is not None:
+                row.setEnabled(False)
+            self._set_value(path, None)
+        else:
+            seed_value = self._walk(self._seed, path)
+            restored = seed_value if isinstance(seed_value, str) else "#ff000000"
+            if row is not None:
+                row.set_value(restored)
+                row.setEnabled(True)
+            self._set_value(path, restored)
+
+    def _num_spin(self, path, low, high, step):
+        spin = QDoubleSpinBox()
+        spin.setRange(low, high)
+        spin.setSingleStep(step)
+        spin.setDecimals(2)
+        spin.setValue(float(self._get(path)))
+        spin.valueChanged.connect(lambda v, p=path: self._set_value(p, float(v)))
+        self._spins[path] = spin
+        return spin
+
+    # ------------------------------------------------------------------
+    # Refresh / reset
+    # ------------------------------------------------------------------
+    def _refresh_all_widgets(self):
+        for path, spin in self._spins.items():
+            spin.blockSignals(True)
+            spin.setValue(float(self._get(path)))
+            spin.blockSignals(False)
+        for path, row in self._color_rows.items():
+            value = self._get(path)
+            row.set_value(value)
+            if path in self._none_checks:
+                check = self._none_checks[path]
+                check.blockSignals(True)
+                check.setChecked(value is None)
+                check.blockSignals(False)
+                row.setEnabled(value is not None)
+        if self._glow_enabled_check is not None:
+            self._glow_enabled_check.blockSignals(True)
+            self._glow_enabled_check.setChecked(bool(self._get(("glow_enabled",))))
+            self._glow_enabled_check.blockSignals(False)
+
+    def _select_category(self, name):
+        self._category_list.setCurrentRow(_CATEGORIES.index(name))
+
+    def _reset_section(self):
+        row = self._category_list.currentRow()
+        if row < 0:
+            return
+        self._reset_category(_CATEGORIES[row])
+
+    def _reset_category(self, name):
+        if name == "Canvas & Chrome":
+            for _label, key in _CHROME_FIELDS:
+                self._working[key] = copy.deepcopy(self._seed[key])
+        elif name == "Node states":
+            self._working["node_styles"] = copy.deepcopy(self._seed["node_styles"])
+        elif name == "Edge states":
+            self._working["edge_styles"] = copy.deepcopy(self._seed["edge_styles"])
+        elif name == "Effects":
+            self._working["glow_enabled"] = self._seed["glow_enabled"]
+        self._refresh_all_widgets()
+        self._mark_dirty()
+
+    # ------------------------------------------------------------------
+    # Save / cancel / close
+    # ------------------------------------------------------------------
+    def _show_error(self, message):
+        self._error_label.setText(message)
+
+    def _on_save(self):
+        name = self._name_edit.text().strip()
+        if not name:
+            self._show_error("Theme name cannot be empty.")
+            return
+        slug = self._current_slug()
+        save_data = dict(self._working)
+        save_data["id"] = slug
+        save_data["name"] = name
+        try:
+            theme = theme_from_dict(save_data)
+        except Exception as exc:  # pragma: no cover - defensive
+            self._show_error(str(exc))
+            return
+
+        self._preview_timer.stop()
+        self._manager.save_custom_theme(theme)   # writes <slug>.json + registers
+        self._manager.set_theme(slug, persist=True)
+        self._drop_preview()
+        self._saved = True
+        self.accept()
+
+    def _restore_original(self):
+        if self._saved:
+            return
+        self._preview_timer.stop()
+        if (
+            self._manager.current.id != self._original_id
+            and self._original_id in self._manager.theme_ids()
+        ):
+            self._manager.set_theme(self._original_id, persist=False)
+        self._drop_preview()
+
+    def reject(self):
+        self._restore_original()
+        super().reject()
+
+    def closeEvent(self, event):
+        self._restore_original()
+        super().closeEvent(event)

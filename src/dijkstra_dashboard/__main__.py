@@ -16,7 +16,11 @@ def main():
 
     # Set application style
     app.setStyle('Fusion')
-    get_theme_manager().load_from_config()
+    manager = get_theme_manager()
+    # Custom themes must register BEFORE load_from_config so a persisted custom
+    # theme id resolves instead of falling back to the default.
+    manager.load_custom_themes()
+    manager.load_from_config()
     app.setWindowIcon(make_app_icon(current_theme()))
 
     # Create and show the main window
