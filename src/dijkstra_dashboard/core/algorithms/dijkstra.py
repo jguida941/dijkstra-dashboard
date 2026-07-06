@@ -4,6 +4,7 @@ from typing import Iterable
 
 from .base import AlgorithmParam, AlgorithmResult, AlgorithmSpec, AlgorithmStep, PathfindingAlgorithm
 from .registry import register_algorithm
+from .runner import result_from_steps
 from ..errors import AlgorithmError
 from ..graph import Graph
 
@@ -19,6 +20,32 @@ class DijkstraAlgorithm(PathfindingAlgorithm):
         output_kind="single_path",
         constraints={"non_negative": True},
     )
+    pseudocode = [
+        "function dijkstra(graph, start, target):",
+        "  for each node v: dist[v] = \u221e",
+        "  dist[start] = 0",
+        "  unvisited = all nodes",
+        "  while unvisited is not empty:",
+        "    u = unvisited node with smallest dist",
+        "    if dist[u] = \u221e: break",
+        "    settle u  (remove from unvisited)",
+        "    if u = target: break",
+        "    for each edge (u, v, weight):",
+        "      if v is settled: skip edge",
+        "      if dist[u] + weight < dist[v]:",
+        "        dist[v] = dist[u] + weight; prev[v] = u",
+        "      else: keep dist[v]  (no improvement)",
+        "  return dist, prev",
+    ]
+    step_line_map = {
+        ("visit", None): [5, 7],
+        ("relax", None): [11, 12],
+        ("skip", "visited"): [10],
+        ("skip", "worse"): [11, 13],
+        ("final", "target_found"): [8, 14],
+        ("final", "unreachable"): [6, 14],
+        ("final", None): [14],
+    }
 
     def _validate_graph(self, graph: Graph) -> None:
         for edge in graph.edges():
@@ -33,25 +60,8 @@ class DijkstraAlgorithm(PathfindingAlgorithm):
 
         self._validate_graph(graph)
 
-        distances, prev, visited_order = self._run(graph, start, target)
-        paths = self._build_paths(prev, start, distances)
-
-        if target is None:
-            path = []
-            distance = None
-        else:
-            path = paths.get(target, [])
-            distance = distances.get(target, float("inf"))
-
-        return AlgorithmResult(
-            kind="single_path",
-            path=path,
-            distance=distance,
-            distances=distances,
-            paths=paths,
-            visited_order=visited_order,
-            steps=None,
-        )
+        steps = list(self.iter_steps(graph, params))
+        return result_from_steps(steps, graph.get_nodes(), start, target, "single_path")
 
     def iter_steps(self, graph: Graph, params: dict,
                    mode: str = "delta") -> Iterable[AlgorithmStep]:
@@ -93,9 +103,17 @@ class DijkstraAlgorithm(PathfindingAlgorithm):
                 break
 
             for neighbor, weight in adjacency[current]:
-                if neighbor not in unvisited:
-                    continue
                 new_dist = distances[current] + weight
+                if neighbor not in unvisited:
+                    yield {
+                        "kind": "skip",
+                        "node": neighbor,
+                        "edge": (current, neighbor),
+                        "old_distance": distances[neighbor],
+                        "new_distance": new_dist,
+                        "payload": {"reason": "visited"},
+                    }
+                    continue
                 if new_dist < distances[neighbor]:
                     old_dist = distances[neighbor]
                     distances[neighbor] = new_dist
@@ -111,48 +129,27 @@ class DijkstraAlgorithm(PathfindingAlgorithm):
                         "new_distance": new_dist,
                         "payload": payload,
                     }
+                else:
+                    yield {
+                        "kind": "skip",
+                        "node": neighbor,
+                        "edge": (current, neighbor),
+                        "old_distance": distances[neighbor],
+                        "new_distance": new_dist,
+                        "payload": {"reason": "worse"},
+                    }
 
         if target is not None:
+            final_distance = distances.get(target, float("inf"))
+            reason = "target_found" if final_distance < float("inf") else "unreachable"
             yield {
                 "kind": "final",
                 "node": target,
                 "edge": None,
                 "old_distance": None,
-                "new_distance": distances.get(target, float("inf")),
-                "payload": None,
+                "new_distance": final_distance,
+                "payload": {"reason": reason},
             }
-
-    def _run(self, graph: Graph, start: str, target: str | None):
-        adjacency = graph.to_adjacency_dict()
-        unvisited = set(adjacency.keys())
-        distances = {node: float("inf") for node in adjacency}
-        prev: dict[str, str] = {}
-        visited_order: list[str] = []
-
-        if start not in adjacency:
-            raise AlgorithmError(f"Start node '{start}' not found.")
-
-        distances[start] = 0.0
-
-        while unvisited:
-            current, current_dist = self._select_current(unvisited, distances, target)
-            if current is None or current_dist == float("inf"):
-                break
-            unvisited.remove(current)
-            visited_order.append(current)
-
-            if target is not None and current == target:
-                break
-
-            for neighbor, weight in adjacency[current]:
-                if neighbor not in unvisited:
-                    continue
-                new_dist = distances[current] + weight
-                if new_dist < distances[neighbor]:
-                    distances[neighbor] = new_dist
-                    prev[neighbor] = current
-
-        return distances, prev, visited_order
 
     def _select_current(self, unvisited: set[str],
                         distances: dict[str, float],
@@ -175,25 +172,7 @@ class DijkstraAlgorithm(PathfindingAlgorithm):
 
         return min_node, min_dist
 
-    def _build_paths(self, prev: dict[str, str], start: str,
-                     distances: dict[str, float]) -> dict[str, list[str]]:
-        paths: dict[str, list[str]] = {}
-        for node, dist in distances.items():
-            if dist == float("inf"):
-                paths[node] = []
-                continue
-            path = [node]
-            while path[-1] != start:
-                parent = prev.get(path[-1])
-                if parent is None:
-                    path = []
-                    break
-                path.append(parent)
-            paths[node] = list(reversed(path))
-        return paths
-
-
 try:
-    register_algorithm(DijkstraAlgorithm.spec)
+    register_algorithm(DijkstraAlgorithm.spec, DijkstraAlgorithm)
 except ValueError:
     pass
