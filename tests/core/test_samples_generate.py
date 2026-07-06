@@ -4,7 +4,7 @@ import math
 
 import pytest
 
-from dijkstra_dashboard.core.dijkstra import shortest_path
+from dijkstra_dashboard.core.algorithms.dijkstra import DijkstraAlgorithm
 from dijkstra_dashboard.core.generate import random_graph
 from dijkstra_dashboard.core.graph import Graph
 from dijkstra_dashboard.core.samples import default_demo_graph
@@ -136,10 +136,10 @@ class TestDijkstraSmoke:
     def test_dijkstra_solves_seeded_graph(self):
         g = random_graph(12, 0.4, seed=21, connected=True)
         start = g.get_nodes()[0]
-        distances, paths = shortest_path(g, start)
-        assert distances[start] == 0
-        assert set(distances) == set(g.get_nodes())
+        result = DijkstraAlgorithm().solve(g, {"start": start})
+        assert result.distances[start] == 0
+        assert set(result.distances) == set(g.get_nodes())
         for node in g.get_nodes():
-            assert distances[node] != float('inf')
-            assert paths[node][0] == start
-            assert paths[node][-1] == node
+            assert result.distances[node] != float('inf')
+            assert result.paths[node][0] == start
+            assert result.paths[node][-1] == node
