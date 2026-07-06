@@ -1,9 +1,10 @@
 import json
+from pathlib import Path
 
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QFileDialog, QMessageBox, QLabel, QComboBox, QSlider, QLineEdit,
-                             QTextEdit, QPlainTextEdit, QAbstractSpinBox)
-from PyQt6.QtCore import Qt
+                             QTextEdit, QPlainTextEdit, QAbstractSpinBox, QDialog)
+from PyQt6.QtCore import Qt, QSettings
 from PyQt6.QtGui import QAction, QActionGroup, QShortcut, QKeySequence
 from .graph_view import GraphView
 from .controls_panel import ControlsPanel
@@ -11,15 +12,61 @@ from .inspector_panel import InspectorPanel
 from .narration import DISPLAY_NAMES, comparison_line, describe_step, describe_summary, run_header
 from .playback_controller import PlaybackController
 from .theme import current_theme, get_theme_manager, make_app_icon
+from .random_graph_dialog import RandomGraphDialog
+from .recent_files import RecentFiles
+from .export import export_scene_png, export_scene_svg, HAS_SVG
 from dijkstra_dashboard.core.graph import Graph
 from dijkstra_dashboard.core.algorithms import get_algorithm_class, list_algorithm_specs
+from dijkstra_dashboard.core.samples import default_demo_graph
+from dijkstra_dashboard.core.generate import random_graph
+from dijkstra_dashboard.core.layouts import circle_layout, grid_layout, spring_layout
+
+
+#: Fixed layout extent (F4): target positions are centered on the scene origin
+#: and scaled to fit this box — comfortably inside the 3000x2000 scene rect and
+#: clear of the +/-25px node clamp margin. Never derived from a degenerate
+#: (0/1-node) itemsBoundingRect.
+LAYOUT_EXTENT_W = 1400.0
+LAYOUT_EXTENT_H = 900.0
+
+
+def normalize_layout_positions(raw, extent_w=LAYOUT_EXTENT_W, extent_h=LAYOUT_EXTENT_H):
+    """Center a layout's positions on the origin and scale to a fixed extent.
+
+    Uses the layout's own coordinate spread (never itemsBoundingRect), so a
+    degenerate 0/1-node graph collapses to the origin instead of dividing by a
+    zero span. The result fits within ``extent_w x extent_h`` centered on (0, 0).
+    """
+    if not raw:
+        return {}
+    xs = [x for x, _y in raw.values()]
+    ys = [y for _x, y in raw.values()]
+    min_x, max_x = min(xs), max(xs)
+    min_y, max_y = min(ys), max(ys)
+    center_x = (min_x + max_x) / 2.0
+    center_y = (min_y + max_y) / 2.0
+    span_x = max_x - min_x
+    span_y = max_y - min_y
+    scale_x = extent_w / span_x if span_x > 1e-9 else 1.0
+    scale_y = extent_h / span_y if span_y > 1e-9 else 1.0
+    scale = min(scale_x, scale_y)
+    return {
+        node_id: ((x - center_x) * scale, (y - center_y) * scale)
+        for node_id, (x, y) in raw.items()
+    }
 
 class MainWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self, settings: QSettings | None = None):
         super().__init__()
         self.setWindowTitle("Dijkstra Path Visualizer")
         self.setMinimumSize(1000, 700)
         self.graph_path = None
+
+        # Recent files (F3): tests inject an isolated tmp-ini QSettings; the app
+        # passes None and gets a bare QSettings() (org/app set in __main__).
+        self.recents = RecentFiles(settings if settings is not None else QSettings())
+        # Examples ship only in a source checkout; scanned once at startup.
+        self._example_paths = self._scan_examples()
 
         # Inspector wiring state (cached per run; never re-read the combo mid-run).
         self._algo_class = None
@@ -144,6 +191,10 @@ class MainWindow(QMainWindow):
         open_action.triggered.connect(self.open_graph)
         file_menu.addAction(open_action)
 
+        # "Open Recent" is rebuilt from RecentFiles after every mutation.
+        self.recent_menu = file_menu.addMenu("Open Recent")
+        self._rebuild_recent_menu()
+
         save_action = QAction("Save Graph", self)
         save_action.triggered.connect(self.save_graph)
         file_menu.addAction(save_action)
@@ -151,6 +202,17 @@ class MainWindow(QMainWindow):
         save_as_action = QAction("Save Graph As...", self)
         save_as_action.triggered.connect(self.save_graph_as)
         file_menu.addAction(save_as_action)
+
+        file_menu.addSeparator()
+        export_png_action = QAction("Export as PNG...", self)
+        export_png_action.triggered.connect(self.export_png)
+        file_menu.addAction(export_png_action)
+
+        export_svg_action = QAction("Export as SVG...", self)
+        export_svg_action.triggered.connect(self.export_svg)
+        # SVG export needs QtSvg; disable the action when the import failed.
+        export_svg_action.setEnabled(HAS_SVG)
+        file_menu.addAction(export_svg_action)
 
         view_menu = self.menuBar().addMenu("View")
         theme_menu = view_menu.addMenu("Theme")
@@ -197,6 +259,31 @@ class MainWindow(QMainWindow):
         self.show_labels_action.setChecked(True)
         self.show_labels_action.toggled.connect(self.graph_view.set_badges_visible)
         view_menu.addAction(self.show_labels_action)
+
+        # Graph menu sits between View and Help.
+        graph_menu = self.menuBar().addMenu("Graph")
+
+        new_action = QAction("New", self)
+        new_action.triggered.connect(self.new_graph)
+        graph_menu.addAction(new_action)
+
+        new_demo_action = QAction("New Demo Graph", self)
+        new_demo_action.triggered.connect(self.new_demo_graph)
+        graph_menu.addAction(new_demo_action)
+
+        generate_action = QAction("Generate Random...", self)
+        generate_action.triggered.connect(self.generate_random_graph)
+        graph_menu.addAction(generate_action)
+
+        graph_menu.addSeparator()
+
+        layout_menu = graph_menu.addMenu("Layout")
+        for label, name in (("Circle", "circle"), ("Grid", "grid"), ("Spring", "spring")):
+            action = QAction(label, self)
+            action.triggered.connect(lambda _checked, n=name: self._apply_named_layout(n))
+            layout_menu.addAction(action)
+
+        self._build_examples_submenu(graph_menu)
 
         help_menu = self.menuBar().addMenu("Help")
         controls_action = QAction("Controls...", self)
@@ -458,21 +545,34 @@ class MainWindow(QMainWindow):
         )
         if not path:
             return
+        self._load_graph_from_path(path)
 
+    def _load_graph_from_path(self, path):
+        """Shared loader for Open / Open Recent / Examples.
+
+        On success: load the graph, sync the directed toggle, record the path in
+        recents and rebuild the submenu. On failure: report and DROP the path
+        from recents (a stale/broken entry should not linger).
+        """
         try:
             with open(path, "r", encoding="utf-8") as handle:
                 data = json.load(handle)
             graph = Graph.from_dict(data)
         except Exception as exc:
             QMessageBox.critical(self, "Load Error", str(exc))
-            return
+            self.recents.remove(path)
+            self._rebuild_recent_menu()
+            return False
 
         self.graph_view.set_graph(graph)
         self.controls_panel.set_nodes(self.graph_view.get_node_items())
         self._set_directed_toggle(graph.directed)
         self.graph_path = path
+        self.recents.add(path)
+        self._rebuild_recent_menu()
         if self.inspector:
             self.inspector.update_status(f"Loaded graph: {path}")
+        return True
 
     def save_graph(self):
         if not self.graph_path:
@@ -509,5 +609,160 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Save Error", str(exc))
             return
 
+        self.recents.add(path)
+        self._rebuild_recent_menu()
         if self.inspector:
             self.inspector.update_status(f"Saved graph: {path}")
+
+    # ------------------------------------------------------------------
+    # Recent files + examples menus
+    # ------------------------------------------------------------------
+    def _scan_examples(self):
+        # Examples ship only in a SOURCE CHECKOUT (repo /examples), never in an
+        # installed wheel. __file__ is .../src/dijkstra_dashboard/ui/main_window.py,
+        # so parents[3] is the repo root. Absent dir -> no submenu, no crash.
+        examples_dir = Path(__file__).resolve().parents[3] / "examples"
+        if not examples_dir.is_dir():
+            return []
+        return sorted(examples_dir.glob("*.json"))
+
+    def _build_examples_submenu(self, graph_menu):
+        # Submenu is hidden entirely when the checkout has no example json.
+        if not self._example_paths:
+            return
+        examples_menu = graph_menu.addMenu("Examples")
+        for example_path in self._example_paths:
+            action = QAction(example_path.stem, self)
+            action.setData(str(example_path))
+            action.triggered.connect(
+                lambda _checked, p=str(example_path): self._load_graph_from_path(p)
+            )
+            examples_menu.addAction(action)
+
+    def _rebuild_recent_menu(self):
+        menu = getattr(self, "recent_menu", None)
+        if menu is None:
+            return
+        menu.clear()
+        paths = self.recents.list()
+        for path in paths:
+            action = QAction(path, self)
+            action.setData(path)
+            action.triggered.connect(
+                lambda _checked, p=path: self._load_graph_from_path(p)
+            )
+            menu.addAction(action)
+        menu.addSeparator()
+        clear_action = QAction("Clear Menu", self)
+        clear_action.setEnabled(bool(paths))
+        clear_action.triggered.connect(self._clear_recent_files)
+        menu.addAction(clear_action)
+
+    def _clear_recent_files(self):
+        self.recents.clear()
+        self._rebuild_recent_menu()
+
+    # ------------------------------------------------------------------
+    # Graph menu handlers
+    # ------------------------------------------------------------------
+    def _confirm_discard(self):
+        answer = QMessageBox.question(self, "Discard Graph", "Discard the current graph?")
+        return answer == QMessageBox.StandardButton.Yes
+
+    def new_graph(self):
+        if not self._confirm_discard():
+            return
+        directed = self.controls_panel.directed_toggle.isChecked()
+        graph = Graph(directed=directed)
+        self.graph_view.set_graph(graph)
+        self.controls_panel.set_nodes(self.graph_view.get_node_items())
+        self.graph_path = None
+        if self.inspector:
+            self.inspector.update_status("New empty graph.")
+
+    def new_demo_graph(self):
+        if not self._confirm_discard():
+            return
+        graph = default_demo_graph()
+        self.graph_view.set_graph(graph)
+        self.controls_panel.set_nodes(self.graph_view.get_node_items())
+        self._set_directed_toggle(graph.directed)
+        self.graph_path = None
+        if self.inspector:
+            self.inspector.update_status("Loaded demo graph.")
+
+    def generate_random_graph(self):
+        dialog = RandomGraphDialog(self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        kwargs = dialog.values()
+        try:
+            graph = random_graph(**kwargs)
+        except Exception as exc:
+            QMessageBox.critical(self, "Generate Error", str(exc))
+            return
+
+        self.graph_view.set_graph(graph)
+        self.controls_panel.set_nodes(self.graph_view.get_node_items())
+        self._set_directed_toggle(graph.directed)
+        self.graph_path = None
+        if self.inspector:
+            # Seed is always echoed (resolved once, so every run is reproducible).
+            self.inspector.update_status(
+                f"Generated {kwargs['node_count']}-node graph "
+                f"(density {kwargs['edge_density']}, seed {dialog.resolved_seed})."
+            )
+
+    def _apply_named_layout(self, name):
+        graph = self.graph_view.get_graph()
+        if graph is None:
+            return
+        node_ids = graph.get_nodes()
+        if not node_ids:
+            return
+        if name == "circle":
+            raw = circle_layout(node_ids)
+        elif name == "grid":
+            raw = grid_layout(node_ids)
+        elif name == "spring":
+            edges = [(start, end) for start, end, _weight in graph.get_edges()]
+            # Pin the seed for determinism (spring is randomized).
+            raw = spring_layout(node_ids, edges, iterations=60, seed=1)
+        else:
+            return
+        positions = normalize_layout_positions(raw)
+        self.graph_view.apply_layout(positions, animate=True)
+
+    # ------------------------------------------------------------------
+    # Export handlers
+    # ------------------------------------------------------------------
+    def export_png(self):
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export as PNG", "", "PNG Image (*.png);;All Files (*)"
+        )
+        if not path:
+            return
+        if not path.lower().endswith(".png"):
+            path = f"{path}.png"
+        if export_scene_png(self.graph_view.scene, path):
+            if self.inspector:
+                self.inspector.update_status(f"Exported PNG: {path}")
+        else:
+            QMessageBox.critical(self, "Export Error", "Failed to export PNG (empty graph?).")
+
+    def export_svg(self):
+        if not HAS_SVG:
+            QMessageBox.warning(self, "Export Error", "SVG export is unavailable (QtSvg missing).")
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export as SVG", "", "SVG Image (*.svg);;All Files (*)"
+        )
+        if not path:
+            return
+        if not path.lower().endswith(".svg"):
+            path = f"{path}.svg"
+        if export_scene_svg(self.graph_view.scene, path):
+            if self.inspector:
+                self.inspector.update_status(f"Exported SVG: {path}")
+        else:
+            QMessageBox.critical(self, "Export Error", "Failed to export SVG (empty graph?).")

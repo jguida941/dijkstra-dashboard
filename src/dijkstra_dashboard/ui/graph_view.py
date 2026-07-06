@@ -838,6 +838,60 @@ class GraphView(QGraphicsView):
         for node in self.nodes.values():
             node.set_badge_visible(bool(visible))
 
+    def apply_layout(self, positions, animate=True, duration=600):
+        """Move nodes to ``positions`` (node_id -> (x, y)).
+
+        ``animate=True`` runs a single 0->1 tween through the AnimationCoordinator
+        (key "layout"): each tick lerps every node's ``setPos``, which drives
+        ``itemChange -> _on_node_moved`` so the model and edges stay synced for
+        free. The coordinator's finalize (``apply(1.0)``) snaps every node to its
+        exact target on natural finish OR on cancel. ``graph_changed`` is emitted
+        EXACTLY ONCE after the tween finishes — positions feed A*'s heuristic, so
+        the run must invalidate, but a per-tick emit would unload it 60x/s — then
+        ``fit_to_content()`` reframes. ``animate=False`` snaps directly.
+        """
+        targets = {
+            node_id: (float(x), float(y))
+            for node_id, (x, y) in positions.items()
+            if node_id in self.nodes
+        }
+        if not targets:
+            return
+
+        if not animate:
+            for node_id, (x, y) in targets.items():
+                item = self.nodes.get(node_id)
+                if item is not None and not sip.isdeleted(item):
+                    item.setPos(QPointF(x, y))
+            self.fit_to_content()
+            self.graph_changed.emit()
+            return
+
+        starts = {}
+        for node_id in targets:
+            pos = self.nodes[node_id].pos()
+            starts[node_id] = (pos.x(), pos.y())
+
+        def apply(progress):
+            for node_id, (end_x, end_y) in targets.items():
+                item = self.nodes.get(node_id)
+                if item is None or sip.isdeleted(item):
+                    continue
+                start_x, start_y = starts[node_id]
+                item.setPos(QPointF(
+                    start_x + (end_x - start_x) * progress,
+                    start_y + (end_y - start_y) * progress,
+                ))
+
+        def on_finished():
+            # Runs only on natural completion (stop()/cancel do not emit
+            # ``finished``), so the emit stays exactly-once per completed layout.
+            self.fit_to_content()
+            self.graph_changed.emit()
+
+        anim = self.animator.animate_float("layout", 0.0, 1.0, duration, apply)
+        anim.finished.connect(on_finished)
+
     def get_edge_weight(self, start, end):
         edge = self._edge_item_for(start, end)
         if edge:
