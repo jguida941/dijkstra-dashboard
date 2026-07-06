@@ -1,4 +1,7 @@
 from . import dijkstra  # noqa: F401
+from . import bfs  # noqa: F401
+from . import bellman_ford  # noqa: F401
+from . import astar  # noqa: F401
 from .base import AlgorithmParam, AlgorithmResult, AlgorithmSpec, AlgorithmStep, PathfindingAlgorithm
 from .dijkstra import DijkstraAlgorithm
 from .runner import (AlgorithmState, apply_step, apply_steps, build_paths, init_state,
