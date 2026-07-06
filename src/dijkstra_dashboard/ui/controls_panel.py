@@ -34,11 +34,11 @@ class ControlsPanel(QWidget):
         row1.addWidget(self.directed_toggle)
 
         # Run button
-        self.run_button = QPushButton("Run Visualization")
+        self.run_button = QPushButton("Run")
         row1.addWidget(self.run_button)
 
         # Step Back button
-        self.step_back_button = QPushButton("⏮ Step Back")
+        self.step_back_button = QPushButton("⏮ Back")
         row1.addWidget(self.step_back_button)
 
         # Step button

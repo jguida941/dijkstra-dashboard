@@ -1,8 +1,10 @@
+from PyQt6 import sip
 from PyQt6.QtWidgets import QGraphicsView, QGraphicsScene, QPushButton, QHBoxLayout, QWidget, QInputDialog, QGraphicsSimpleTextItem, QSizePolicy
 from PyQt6.QtCore import Qt, QPointF, QTimer, pyqtSignal
 from PyQt6.QtGui import QBrush, QColor, QLinearGradient, QResizeEvent
 from .graph_node import GraphNode
 from .graph_edge import GraphEdge, WeightChip
+from .animations import AnimationCoordinator
 from .theme import current_theme, get_theme_manager
 from dijkstra_dashboard.core.graph import Graph
 import math
@@ -39,8 +41,14 @@ class GraphView(QGraphicsView):
         # Make view expandable instead of fixed size
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setMinimumSize(400, 300)
-        # Initial scene rect - will be updated on resize
-        self.scene.setSceneRect(-400, -300, 800, 600)
+        # Scene rect is decoupled from the window: one big fixed canvas so nodes
+        # can be dragged well outside the current viewport. Set once, never
+        # rewritten on resize.
+        self.scene.setSceneRect(-1500, -1000, 3000, 2000)
+
+        # Coordinator owns every transient tween (pops, travel dots, staggers,
+        # zoom eases). Parented to the view; graphics items never own it.
+        self.animator = AnimationCoordinator(self)
 
         self._apply_canvas_bg(current_theme())
 
@@ -107,6 +115,8 @@ class GraphView(QGraphicsView):
         self.setBackgroundBrush(QBrush(gradient))
 
     def _on_theme_changed(self, theme):
+        # Cancel -> snap every in-flight tween before restyling, then refresh.
+        self.animator.cancel_all()
         self._apply_canvas_bg(theme)
         for node in self.nodes.values():
             node.refresh_theme()
@@ -114,31 +124,71 @@ class GraphView(QGraphicsView):
             edge.refresh_theme()
 
     def zoom_in(self):
-        self.zoom_level += self.zoom_step
-        self.set_zoom()
+        self._animate_zoom(min(5.0, self.zoom_level + self.zoom_step))
 
     def zoom_out(self):
-        self.zoom_level = max(0.2, self.zoom_level - self.zoom_step)
-        self.set_zoom()
+        self._animate_zoom(max(0.2, self.zoom_level - self.zoom_step))
 
     def reset_zoom(self):
+        # "100%" resets instantly (center-anchored). Cancel any in-flight +/- ease
+        # first so the reset can't be overridden by a lingering zoom tween.
+        self.animator.cancel("zoom")
         self.zoom_level = 1.0
         self.set_zoom()
 
+    def _animate_zoom(self, target):
+        def apply(value):
+            self.zoom_level = value
+            self.set_zoom()
+
+        self.animator.animate_float("zoom", self.zoom_level, target, 120, apply)
+
     def set_zoom(self):
-        # Reset transform
+        # Reset transform then scale (center-anchored path for the +/-/100% buttons).
         self.resetTransform()
-        # Apply new zoom level
         self.scale(self.zoom_level, self.zoom_level)
+
+    def wheelEvent(self, event):
+        # Incremental zoom anchored under the cursor. NEVER resetTransform here:
+        # that would drop the AnchorUnderMouse translation. Scale by the ratio
+        # of the clamped new zoom to the current zoom, and keep zoom_level truthful.
+        self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
+        new_zoom = max(0.2, min(5.0, self.zoom_level * (1.0015 ** event.angleDelta().y())))
+        factor = new_zoom / self.zoom_level if self.zoom_level else 1.0
+        self.scale(factor, factor)
+        self.zoom_level = new_zoom
+        self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
+        event.accept()
+
+    def fit_to_content(self):
+        # Fit the graph's bounding box (plus margin) into the viewport, then
+        # resync zoom_level to the resulting scale. No-op on an empty scene.
+        if not self.scene.items():
+            return
+        rect = self.scene.itemsBoundingRect()
+        if rect.isEmpty():
+            return
+        self.fitInView(rect.adjusted(-60, -60, 60, 60), Qt.AspectRatioMode.KeepAspectRatio)
+        self.zoom_level = self.transform().m11()
+
+    def set_tween_interval(self, ms):
+        self.animator.set_interval(ms)
+
+    def _anchor_zoom_overlay(self):
+        overlay = getattr(self, "zoom_controls_widget", None)
+        if overlay is None:
+            return
+        overlay.adjustSize()
+        x = self.width() - overlay.width() - 12
+        y = self.height() - overlay.height() - 12
+        overlay.move(max(0, x), max(0, y))
 
     def resizeEvent(self, event: QResizeEvent):
         super().resizeEvent(event)
-        # Update scene rect to match view size, centered at origin
-        w = event.size().width()
-        h = event.size().height()
-        self.scene.setSceneRect(-w / 2, -h / 2, w, h)
+        # Scene rect is fixed (decoupled from the window); do NOT rewrite it here.
+        # Re-apply the canvas gradient and re-anchor the zoom overlay bottom-right.
         self._apply_canvas_bg(current_theme())
-        # Update edge label positions since scene bounds changed
+        self._anchor_zoom_overlay()
         for edge in self.edges.values():
             edge.update_position()
 
@@ -274,7 +324,9 @@ class GraphView(QGraphicsView):
         self.pending_edge_start = None
         self._clear_message()
 
-        # Clear old scene
+        # Clear old scene. Flush pending tweens onto still-live items first so
+        # no finalize runs against a deleted node/edge after scene.clear().
+        self.animator.cancel_all()
         for node in self.nodes.values():
             node.stop_pulse()
         self.scene.clear()
@@ -340,6 +392,7 @@ class GraphView(QGraphicsView):
                 self.scene.addItem(edge_item)
 
         self.graph_changed.emit()
+        self.fit_to_content()
 
     def get_graph(self):
         return self.graph
@@ -511,6 +564,8 @@ class GraphView(QGraphicsView):
         if not self.graph:
             return
         self._clear_message()
+        # Flush pending tweens onto still-live items before any removal.
+        self.animator.cancel_all()
         node_id = node_item.node_id
         edges_to_remove = [
             edge_key for edge_key, edge in self.edges.items()
@@ -526,10 +581,9 @@ class GraphView(QGraphicsView):
             if edge_item:
                 edge_item.dispose()
         self.nodes.pop(node_id, None)
-        # Stop animation and clear graphics effects on node before removal
+        # Stop pulse before removal. The label carries no effect (Phase 1), so only
+        # the node's own glow effect is cleared (sanctioned end-of-life).
         node_item.stop_pulse()
-        if hasattr(node_item, 'label') and node_item.label:
-            node_item.label.setGraphicsEffect(None)
         node_item.setGraphicsEffect(None)
         if node_item.scene() is self.scene:
             self.scene.removeItem(node_item)
@@ -539,6 +593,7 @@ class GraphView(QGraphicsView):
         if not self.graph:
             return
         self._clear_message()
+        self.animator.cancel_all()
         start_id = edge_item.start_node.node_id
         end_id = edge_item.end_node.node_id
         try:
@@ -563,6 +618,7 @@ class GraphView(QGraphicsView):
         if not self.graph:
             return
         self._clear_message()
+        self.animator.cancel_all()
 
         # Remove edges first to avoid stale references during node deletion.
         for edge_item in edges:
@@ -617,9 +673,91 @@ class GraphView(QGraphicsView):
     # Rendering — the view is a pure renderer of controller RenderFrames.
     # ------------------------------------------------------------------
     def render_frame(self, frame):
-        """Single idempotent full pass over ALL items via Phase-1 set_state."""
+        """Render a controller frame.
+
+        State is always written by the idempotent Phase-1 ``set_state`` pass, so
+        scrubbing/seeking/loading is instantly correct. A forward step layers
+        additive emphasis (pop, travel dot, or the final path stagger) on top.
+        """
+        if not frame.forward_step:
+            # Scrub / seek / load: flush emphasis, then plain instant pass.
+            self.animator.cancel_all()
+            self._render_nodes(frame)
+            self._render_edges(frame)
+            return
+
+        if frame.is_final and frame.path:
+            # Dim non-path items instantly, then stagger the path into "final".
+            self._render_final_staggered(frame)
+            return
+
+        # Ordinary forward step: instant state pass + additive emphasis.
         self._render_nodes(frame)
         self._render_edges(frame)
+        self._animate_step_delta(frame)
+
+    def _animate_step_delta(self, frame):
+        step = frame.step
+        if not step:
+            return
+        kind = step.get("kind")
+        if kind == "visit":
+            # A newly-settled current node gets a pop of emphasis.
+            current = frame.current
+            if current is not None and current in self.nodes:
+                self.animator.pop_scale(self.nodes[current], self.animator.scaled(300))
+        elif kind == "relax":
+            # F1: a travel dot fires ONLY when the step carries an edge that
+            # resolves to a live item (bellman-ford's source seed has edge=None).
+            edge = step.get("edge")
+            if edge is not None:
+                item = self._edge_item_for(edge[0], edge[1])
+                if item is not None:
+                    color = current_theme().edge_style("relaxed").stroke
+                    self.animator.travel_dot(
+                        self.scene, item.curve_path(), color, self.animator.scaled(320)
+                    )
+
+    def _render_final_staggered(self, frame):
+        final_node_ids = set(frame.path)
+        final_items = set()
+        for start, end in zip(frame.path, frame.path[1:]):
+            item = self._edge_item_for(start, end)
+            if item is not None:
+                final_items.add(item)
+
+        # Badges reflect final distances for every node (never animated).
+        for node_id, node_item in self.nodes.items():
+            distance = frame.distances.get(node_id, INF)
+            node_item.set_distance_text(format_distance(distance))
+            node_item.set_badge_emphasis(False)
+            if node_id not in final_node_ids:
+                node_item.set_state("unreachable" if distance == INF else "not_in_path")
+
+        # Non-path edges dim instantly; path edges wait for the stagger.
+        for edge_item in self.edges.values():
+            if edge_item in final_items:
+                continue
+            start_distance = frame.distances.get(edge_item.start_node.node_id, INF)
+            end_distance = frame.distances.get(edge_item.end_node.node_id, INF)
+            if start_distance == INF and end_distance == INF:
+                edge_item.set_state("unreachable")
+            else:
+                edge_item.set_state("not_in_path")
+
+        # Stagger the path node/edge "final" reveal source -> target.
+        callbacks = []
+        path = frame.path
+        for index, node_id in enumerate(path):
+            node_item = self.nodes.get(node_id)
+            if node_item is not None:
+                callbacks.append(lambda n=node_item: (not sip.isdeleted(n)) and n.set_state("final"))
+            if index < len(path) - 1:
+                item = self._edge_item_for(path[index], path[index + 1])
+                if item is not None:
+                    callbacks.append(lambda e=item: (not sip.isdeleted(e)) and e.set_state("final"))
+        if callbacks:
+            self.animator.run_stagger(callbacks, step_ms=self.animator.scaled(120))
 
     def _render_nodes(self, frame):
         visited = set(frame.visited)
@@ -688,6 +826,7 @@ class GraphView(QGraphicsView):
         return items
 
     def clear_run_decorations(self):
+        self.animator.cancel_all()
         for node in self.nodes.values():
             node.set_state("default")
             node.set_distance_text(None)

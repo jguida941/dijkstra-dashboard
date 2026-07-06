@@ -171,6 +171,10 @@ class MainWindow(QMainWindow):
         reset_zoom_action.triggered.connect(self.graph_view.reset_zoom)
         view_menu.addAction(reset_zoom_action)
 
+        fit_action = QAction("Fit to Graph", self)
+        fit_action.triggered.connect(self.graph_view.fit_to_content)
+        view_menu.addAction(fit_action)
+
         help_menu = self.menuBar().addMenu("Help")
         controls_action = QAction("Controls...", self)
         controls_action.triggered.connect(self.show_controls_help)
@@ -256,6 +260,7 @@ class MainWindow(QMainWindow):
     def on_speed_changed(self, value):
         interval_ms = 1100 - (value * 100)
         self.playback.set_interval(interval_ms)
+        self.graph_view.set_tween_interval(interval_ms)
 
     def on_timeline_changed(self, value):
         self.playback.seek(value)

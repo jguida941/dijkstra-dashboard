@@ -166,3 +166,96 @@ def test_run_button_end_to_end_reaches_finish(qapp, qtbot):
     assert blocker.args[0]["path"] == ("A", "C", "B", "F")
     assert window.status_panel.status_text.toPlainText() != ""
     window.close()
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 — animation layer integration (additive emphasis over instant states)
+# ---------------------------------------------------------------------------
+def test_forward_visit_registers_pop_and_lands_current(qapp, qtbot):
+    window = MainWindow()
+    window.graph_view.set_tween_interval(60)  # tiny tweens
+    _load(window)
+
+    window.playback.step_forward()  # visit A -> current + pop emphasis
+
+    assert len(window.graph_view.animator._registry) == 1  # a pop is pending
+
+    qtbot.waitUntil(lambda: not window.graph_view.animator._registry, timeout=2000)
+
+    node_a = window.graph_view.nodes["A"]
+    assert node_a._state == "current"          # state snapped instantly
+    assert node_a.scale() == pytest.approx(1.0)  # pop finalized back to 1.0
+    window.close()
+
+
+def test_forward_steps_land_exact_states_and_clean_scene(qapp, qtbot):
+    window = MainWindow()
+    window.graph_view.set_tween_interval(60)
+    _load(window)
+
+    scene = window.graph_view.scene
+    baseline_items = len(scene.items())
+
+    for _ in range(5):  # visits + relaxes: pops and travel dots fire
+        window.playback.step_forward()
+
+    qtbot.waitUntil(lambda: not window.graph_view.animator._registry, timeout=3000)
+
+    nodes = window.graph_view.nodes
+    assert nodes["A"]._state == "visited"
+    assert nodes["C"]._state == "current"
+    assert nodes["B"]._state == "frontier"
+    assert all(node.scale() == pytest.approx(1.0) for node in nodes.values())
+    assert len(scene.items()) == baseline_items  # travel dots removed on finish
+    window.close()
+
+
+def test_forward_into_final_staggers_then_lands_final_states(qapp, qtbot):
+    window = MainWindow()
+    window.graph_view.set_tween_interval(60)
+    _load(window)
+
+    for _ in range(window.playback.total):  # drive to the final frame (forward)
+        window.playback.step_forward()
+
+    qtbot.waitUntil(lambda: not window.graph_view.animator._registry, timeout=4000)
+
+    nodes = window.graph_view.nodes
+    for node_id in ("A", "C", "B", "F"):
+        assert nodes[node_id]._state == "final"
+    for node_id in ("D", "E"):
+        assert nodes[node_id]._state == "not_in_path"
+    assert window.graph_view._edge_item_for("A", "C")._state == "final"
+    assert window.graph_view._edge_item_for("B", "F")._state == "final"
+    window.close()
+
+
+def test_scrub_renders_instant_states_with_no_pending_animation(qapp):
+    window = MainWindow()
+    window.graph_view.set_tween_interval(60)
+    _load(window)
+
+    window.playback.seek(5)  # forward_step=False -> cancel_all + instant pass
+
+    nodes = window.graph_view.nodes
+    assert nodes["A"]._state == "visited"
+    assert nodes["C"]._state == "current"
+    assert nodes["B"]._state == "frontier"
+    assert len(window.graph_view.animator._registry) == 0  # scrub queues nothing
+    window.close()
+
+
+def test_bellman_ford_first_edge_free_relax_no_crash(qapp, qtbot):
+    # F1: bellman-ford seeds the source with an edge=None relax; travel_dot must
+    # NOT fire for it and the forward step must not crash with animations enabled.
+    window = MainWindow()
+    window.graph_view.set_tween_interval(60)
+    graph = window.graph_view.get_graph()
+    assert window.playback.load_run(graph, "bellman-ford", {"start": "A", "target": "F"})
+
+    window.playback.step_forward()  # first step: edge-free relax of the source
+    qtbot.wait(150)
+
+    node_a = window.graph_view.nodes["A"]
+    assert node_a._badge_text == "0"     # source distance seeded, state pass ran
+    window.close()
