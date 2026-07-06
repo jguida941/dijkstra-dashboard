@@ -62,12 +62,20 @@ def test_switching_theme_mid_run_does_not_crash(qapp):
     graph = window.graph_view.get_graph()
     node_ids = graph.get_nodes()
 
-    assert window.graph_view.prepare_visualization(node_ids[0], node_ids[-1], force=True)
-    window.graph_view.animate_step()
-    window.graph_view.animate_step()
+    assert window.playback.load_run(
+        graph, "dijkstra", {"start": node_ids[0], "target": node_ids[-1]}
+    )
+    window.playback.step_forward()
+    window.playback.step_forward()
+
+    # Start node is "current" for the opening steps; capture it to prove the
+    # render state survives a theme swap through set_state re-application.
+    start_state = window.graph_view.nodes[node_ids[0]]._state
+    assert start_state == "current"
 
     get_theme_manager().set_theme("paper-light", persist=False)
     qapp.processEvents()
-    window.graph_view.animate_step()
+    window.playback.step_forward()
 
+    assert window.graph_view.nodes[node_ids[0]]._state == "current"
     window.close()

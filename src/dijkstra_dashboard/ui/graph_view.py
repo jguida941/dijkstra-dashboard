@@ -4,22 +4,30 @@ from PyQt6.QtGui import QBrush, QColor, QLinearGradient, QResizeEvent
 from .graph_node import GraphNode
 from .graph_edge import GraphEdge, WeightChip
 from .theme import current_theme, get_theme_manager
-from dijkstra_dashboard.core.algorithms.dijkstra import DijkstraAlgorithm
-from dijkstra_dashboard.core.algorithms.runner import apply_step, init_state
-from dijkstra_dashboard.core.errors import AlgorithmError
 from dijkstra_dashboard.core.graph import Graph
 import math
+
+INF = float("inf")
+
+
+def format_distance(value):
+    if value == INF:
+        return "∞"
+    if float(value).is_integer():
+        return str(int(value))
+    return f"{value:g}"
+
 
 class GraphView(QGraphicsView):
     graph_changed = pyqtSignal()
     message_changed = pyqtSignal(str)
-    playback_finished = pyqtSignal()
+    status_message = pyqtSignal(str, str)
 
-    def __init__(self, status_panel=None):
+    def __init__(self):
         super().__init__()
         self.scene = QGraphicsScene()
         self.setScene(self.scene)
-        
+
         # Enhanced rendering settings
         self.setRenderHint(self.renderHints().Antialiasing)
         self.setRenderHint(self.renderHints().SmoothPixmapTransform)
@@ -27,81 +35,65 @@ class GraphView(QGraphicsView):
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        
+
         # Make view expandable instead of fixed size
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setMinimumSize(400, 300)
         # Initial scene rect - will be updated on resize
         self.scene.setSceneRect(-400, -300, 800, 600)
-        
+
         self._apply_canvas_bg(current_theme())
-        
+
         # Enable node dragging; use right-click drag for panning
         self.setDragMode(self.DragMode.NoDrag)
-        
+
         # Zoom settings
         self.zoom_level = 1.0
         self.zoom_step = 0.2  # 20% zoom step
-        
+
         # Create zoom controls
         self.create_zoom_controls()
-        
+
         # Store nodes and edges
         self.nodes = {}
         self.edges = {}
         self.graph = None
         self.pending_edge_start = None
-        
-        # Animation timer
-        self.animation_timer = QTimer()
-        self.animation_timer.timeout.connect(self.animate_step)
-        self.animation_timer.setInterval(500)
-        self.current_path = []
-        self.steps = []
-        self.step_index = 0
-        self.visited_order = []
-        self.final_visited_order = []
-        self.step_state = None
-        self.ready_params = None
-        self.finalized = False
-        self._current_node_id = None
-        
-        # Status panel reference
-        self.status_panel = status_panel
+
         get_theme_manager().theme_changed.connect(self._on_theme_changed)
-        
+
         # Setup the graph
         self.setup_graph()
-        
+
     def create_zoom_controls(self):
         # Create a container widget for zoom controls
         controls_widget = QWidget()
         controls_widget.setObjectName("zoomOverlay")
         controls_layout = QHBoxLayout()
         controls_widget.setLayout(controls_layout)
-        
+
         # Zoom out button
         zoom_out_btn = QPushButton("-")
         zoom_out_btn.setFixedSize(30, 30)
         zoom_out_btn.clicked.connect(self.zoom_out)
-        
+
         # Zoom reset button
         zoom_reset_btn = QPushButton("100%")
         zoom_reset_btn.setFixedSize(50, 30)
         zoom_reset_btn.clicked.connect(self.reset_zoom)
-        
+
         # Zoom in button
         zoom_in_btn = QPushButton("+")
         zoom_in_btn.setFixedSize(30, 30)
         zoom_in_btn.clicked.connect(self.zoom_in)
-        
+
         # Add buttons to layout
         controls_layout.addWidget(zoom_out_btn)
         controls_layout.addWidget(zoom_reset_btn)
         controls_layout.addWidget(zoom_in_btn)
         controls_layout.setSpacing(5)
         controls_layout.setContentsMargins(0, 0, 0, 0)
-        
+
         # Add controls to the view
         controls_widget.setParent(self)
         controls_widget.move(10, 10)  # Position in top-left corner
@@ -120,19 +112,19 @@ class GraphView(QGraphicsView):
             node.refresh_theme()
         for edge in self.edges.values():
             edge.refresh_theme()
-        
+
     def zoom_in(self):
         self.zoom_level += self.zoom_step
         self.set_zoom()
-        
+
     def zoom_out(self):
         self.zoom_level = max(0.2, self.zoom_level - self.zoom_step)
         self.set_zoom()
-        
+
     def reset_zoom(self):
         self.zoom_level = 1.0
         self.set_zoom()
-        
+
     def set_zoom(self):
         # Reset transform
         self.resetTransform()
@@ -191,7 +183,7 @@ class GraphView(QGraphicsView):
                     return
 
         super().mousePressEvent(event)
-        
+
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.MouseButton.RightButton:
             self.setDragMode(self.DragMode.NoDrag)
@@ -244,7 +236,7 @@ class GraphView(QGraphicsView):
                 QTimer.singleShot(0, lambda e=edges, n=nodes: self._delete_items(e, n))
             return
         super().keyPressEvent(event)
-        
+
     def setup_graph(self):
         # Dynamically position nodes in a circle based on number of nodes
         node_names = ['A', 'B', 'C', 'D', 'E', 'F']
@@ -281,7 +273,6 @@ class GraphView(QGraphicsView):
         self.graph = graph
         self.pending_edge_start = None
         self._clear_message()
-        self._invalidate_steps()
 
         # Clear old scene
         for node in self.nodes.values():
@@ -362,7 +353,6 @@ class GraphView(QGraphicsView):
         if not self.graph:
             return
         self._clear_message()
-        self._invalidate_steps()
         scene_pos = self.mapToScene(view_pos)
 
         # Constrain new node position to scene bounds
@@ -383,16 +373,14 @@ class GraphView(QGraphicsView):
         node_id = node_item.node_id
         if self.pending_edge_start is None:
             self.pending_edge_start = node_id
-            if self.status_panel:
-                self.status_panel.update_status(
-                    f"Selected node {node_item.name} for edge start."
-                )
+            self.status_message.emit(
+                f"Selected node {node_item.name} for edge start.", "text"
+            )
             return
 
         if self.pending_edge_start == node_id:
             self.pending_edge_start = None
-            if self.status_panel:
-                self.status_panel.update_status("Edge start cleared.")
+            self.status_message.emit("Edge start cleared.", "text")
             return
 
         weight, ok = QInputDialog.getDouble(
@@ -416,18 +404,17 @@ class GraphView(QGraphicsView):
                         raise
                 if not updated:
                     self.graph.add_edge(self.pending_edge_start, node_id, weight)
+                direction = "->" if self.graph.directed else "--"
+                start_label = self.graph.get_node_label(self.pending_edge_start)
+                end_label = self.graph.get_node_label(node_id)
+                action = "Updated" if updated else "Added"
                 self.set_graph(self.graph)
-                if self.status_panel:
-                    direction = "->" if self.graph.directed else "--"
-                    start_label = self.graph.get_node_label(self.pending_edge_start)
-                    end_label = self.graph.get_node_label(node_id)
-                    action = "Updated" if updated else "Added"
-                    self.status_panel.update_status(
-                        f"{action} edge {start_label} {direction} {end_label} ({weight})."
-                    )
+                self.status_message.emit(
+                    f"{action} edge {start_label} {direction} {end_label} ({weight}).",
+                    "text",
+                )
             except Exception as exc:
-                if self.status_panel:
-                    self.status_panel.update_status(str(exc), "error")
+                self.status_message.emit(str(exc), "error")
 
         self.pending_edge_start = None
 
@@ -442,25 +429,7 @@ class GraphView(QGraphicsView):
     def _clear_message(self):
         self.message_changed.emit("")
 
-    def _highlight_no_path(self):
-        for node in self.nodes.values():
-            node.set_state("unreachable")
-        for edge in self.edges.values():
-            edge.set_state("unreachable")
-
-    def _invalidate_steps(self):
-        self.animation_timer.stop()
-        self.current_path = []
-        self.steps = []
-        self.step_index = 0
-        self.visited_order = []
-        self.final_visited_order = []
-        self.step_state = None
-        self.ready_params = None
-        self.finalized = False
-        self._current_node_id = None
-
-    def _label_lookup(self, node_id):
+    def label_lookup(self, node_id):
         if self.graph:
             try:
                 label = self.graph.get_node_label(node_id)
@@ -496,25 +465,21 @@ class GraphView(QGraphicsView):
             return
         label = label.strip()
         if not label:
-            if self.status_panel:
-                self.status_panel.update_status("Node label cannot be empty.", "error")
+            self.status_message.emit("Node label cannot be empty.", "error")
             return
         for node in self.graph.nodes():
             if node.label == label and node.id != node_item.node_id:
-                if self.status_panel:
-                    self.status_panel.update_status(
-                        f"Node label '{label}' is already in use.",
-                        "error",
-                    )
+                self.status_message.emit(
+                    f"Node label '{label}' is already in use.",
+                    "error",
+                )
                 return
         try:
             self.graph.rename_node(node_item.node_id, label)
             node_item.set_label(label)
-            self._invalidate_steps()
             self.graph_changed.emit()
         except Exception as exc:
-            if self.status_panel:
-                self.status_panel.update_status(str(exc), "error")
+            self.status_message.emit(str(exc), "error")
 
     def _edit_edge_weight(self, edge_item):
         if not self.graph:
@@ -538,10 +503,9 @@ class GraphView(QGraphicsView):
             else:
                 self.graph.update_edge(edge_item.start_node.node_id, edge_item.end_node.node_id, weight)
             edge_item.set_weight(weight)
-            self._invalidate_steps()
+            self.graph_changed.emit()
         except Exception as exc:
-            if self.status_panel:
-                self.status_panel.update_status(str(exc), "error")
+            self.status_message.emit(str(exc), "error")
 
     def _remove_node_item(self, node_item):
         if not self.graph:
@@ -555,8 +519,7 @@ class GraphView(QGraphicsView):
         try:
             self.graph.remove_node(node_id)
         except Exception as exc:
-            if self.status_panel:
-                self.status_panel.update_status(str(exc), "error")
+            self.status_message.emit(str(exc), "error")
             return
         for edge_key in edges_to_remove:
             edge_item = self.edges.pop(edge_key, None)
@@ -570,7 +533,7 @@ class GraphView(QGraphicsView):
         node_item.setGraphicsEffect(None)
         if node_item.scene() is self.scene:
             self.scene.removeItem(node_item)
-        self._invalidate_steps()
+        self.graph_changed.emit()
 
     def _remove_edge_item(self, edge_item):
         if not self.graph:
@@ -585,8 +548,7 @@ class GraphView(QGraphicsView):
             else:
                 self.graph.remove_edge(start_id, end_id)
         except Exception as exc:
-            if self.status_panel:
-                self.status_panel.update_status(str(exc), "error")
+            self.status_message.emit(str(exc), "error")
             return
         if edge_item.bidirectional and self.graph.directed:
             edge_key = tuple(sorted([start_id, end_id]))
@@ -595,7 +557,7 @@ class GraphView(QGraphicsView):
         edge_item = self.edges.pop(edge_key, edge_item)
         if edge_item:
             edge_item.dispose()
-        self._invalidate_steps()
+        self.graph_changed.emit()
 
     def _delete_items(self, edges, nodes):
         if not self.graph:
@@ -650,196 +612,95 @@ class GraphView(QGraphicsView):
         if self.graph:
             return self.graph.get_nodes()
         return list(self.nodes.keys())
-            
-    def prepare_visualization(self, start_node, target_node, force=False):
-        if (not force and self.ready_params == (start_node, target_node)
-                and self.steps and self.step_index < len(self.steps)):
-            return True
 
-        # Reset all nodes and edges to default state
-        self.reset()
-        self.visited_order = []
-        self.final_visited_order = []
-        self.ready_params = (start_node, target_node)
-        self.finalized = False
+    # ------------------------------------------------------------------
+    # Rendering — the view is a pure renderer of controller RenderFrames.
+    # ------------------------------------------------------------------
+    def render_frame(self, frame):
+        """Single idempotent full pass over ALL items via Phase-1 set_state."""
+        self._render_nodes(frame)
+        self._render_edges(frame)
 
-        if not self.graph:
-            return False
+    def _render_nodes(self, frame):
+        visited = set(frame.visited)
+        step = frame.step
+        emphasize_node = None
+        if frame.forward_step and step is not None and step.get("kind") == "relax":
+            emphasize_node = step.get("node")
 
-        algorithm = DijkstraAlgorithm()
-        try:
-            result = algorithm.solve(self.graph, {
-                "start": start_node,
-                "target": target_node,
-            })
-        except AlgorithmError as exc:
-            if self.status_panel:
-                self.status_panel.update_status(str(exc), "error")
-            return False
+        for node_id, node_item in self.nodes.items():
+            distance = frame.distances.get(node_id, INF)
+            if frame.is_final and frame.path and node_id in frame.path:
+                state = "final"
+            elif frame.is_final and frame.path:
+                state = "not_in_path"
+            elif frame.is_final:
+                state = "unreachable" if distance == INF else "not_in_path"
+            elif node_id == frame.current:
+                state = "current"
+            elif node_id in visited:
+                state = "visited"
+            elif distance < INF:
+                state = "frontier"
+            else:
+                state = "default"
+            node_item.set_state(state)
+            node_item.set_distance_text(format_distance(distance))
+            node_item.set_badge_emphasis(node_id == emphasize_node)
 
-        self.current_path = result.path or []
-        self.steps = list(algorithm.iter_steps(self.graph, {
-            "start": start_node,
-            "target": target_node,
-        }))
-        self.step_index = 0
-        self.final_visited_order = result.visited_order
-        self.step_state = init_state(self.graph.get_nodes())
-        self.finalized = False
+    def _render_edges(self, frame):
+        # F1/F2: resolve ORIENTED event tuples to edge ITEMS, then rank by item
+        # identity. Item-level subtraction kills undirected orientation ghosts.
+        final_items = set()
+        if frame.is_final and frame.path:
+            for start, end in zip(frame.path, frame.path[1:]):
+                item = self._edge_item_for(start, end)
+                if item is not None:
+                    final_items.add(item)
 
-        if not self.current_path:
-            self._highlight_no_path()
-            self.message_changed.emit("No path found.")
-            if self.status_panel:
-                self.status_panel.update_status("No path found.", "error")
-            return False
+        tree_items = self._items_for(frame.tree_edges)
+        considered_items = self._items_for(frame.considered_edges) - tree_items
 
-        return True
+        for edge_item in self.edges.values():
+            if frame.is_final and frame.path:
+                state = "final" if edge_item in final_items else "not_in_path"
+            elif frame.is_final:
+                start_distance = frame.distances.get(edge_item.start_node.node_id, INF)
+                end_distance = frame.distances.get(edge_item.end_node.node_id, INF)
+                if start_distance == INF and end_distance == INF:
+                    state = "unreachable"
+                else:
+                    state = "not_in_path"
+            elif edge_item in tree_items:
+                state = "relaxed"
+            elif edge_item in considered_items:
+                state = "considered"
+            else:
+                state = "default"
+            edge_item.set_state(state)
 
-    def start_visualization(self, start_node, target_node):
-        if not self.prepare_visualization(start_node, target_node, force=True):
-            return
-        self.start_playback()
+    def _items_for(self, oriented_edges):
+        items = set()
+        for start, end in oriented_edges:
+            item = self._edge_item_for(start, end)
+            if item is not None:
+                items.add(item)
+        return items
 
-    def start_playback(self):
-        if not self.steps:
-            return
-        if not self.animation_timer.isActive():
-            self.animation_timer.start()
-
-    def pause_playback(self):
-        if self.animation_timer.isActive():
-            self.animation_timer.stop()
-
-    def step_once(self, start_node, target_node):
-        self.pause_playback()
-        if not self.prepare_visualization(start_node, target_node, force=False):
-            return
-        if self.steps:
-            self.animate_step()
-
-    def set_animation_interval(self, interval_ms):
-        self.animation_timer.setInterval(max(50, int(interval_ms)))
-
-    def animate_step(self):
-        if self.step_index >= len(self.steps):
-            self._finalize_visualization()
-            return
-
-        step = self.steps[self.step_index]
-        kind = step.get("kind")
-
-        if self.step_state is not None:
-            apply_step(self.step_state, step)
-            self.visited_order = list(self.step_state.visited)
-
-        if kind == "visit":
-            node_id = step.get("node")
-            previous_node_id = self._current_node_id
-            if previous_node_id in self.nodes and previous_node_id != node_id:
-                self.nodes[previous_node_id].set_state("visited")
-            if node_id in self.nodes:
-                self.nodes[node_id].set_state("current")
-                self._current_node_id = node_id
-                if node_id not in self.visited_order:
-                    self.visited_order.append(node_id)
-        elif kind == "relax":
-            edge_key = step.get("edge") or (None, None)
-            start, end = edge_key
-            if start and end:
-                edge = self._edge_item_for(start, end)
-                if edge:
-                    edge.set_state("relaxed")
-
-        # Update status panel
-        if self.status_panel:
-            self.status_panel.show_path(
-                self.current_path,
-                self.get_total_distance(),
-                self.visited_order,
-                self.get_edge_weight,
-                self._label_lookup,
-            )
-
-        self.step_index += 1
-        if self.step_index >= len(self.steps):
-            self._finalize_visualization()
-
-    def _finalize_visualization(self):
-        if self.finalized:
-            return
-        if not self.current_path:
-            return
-        self.finalized = True
-
-        for edge in self.edges.values():
-            edge.set_state("not_in_path")
-
+    def clear_run_decorations(self):
         for node in self.nodes.values():
-            node.set_state("not_in_path")
+            node.set_state("default")
+            node.set_distance_text(None)
+            node.set_badge_emphasis(False)
+        for edge in self.edges.values():
+            edge.set_state("default")
 
-        for i in range(len(self.current_path) - 1):
-            current = self.current_path[i]
-            next_node = self.current_path[i + 1]
-            self.nodes[current].set_state("final")
-            edge = self._edge_item_for(current, next_node)
-            if edge:
-                edge.set_state("final")
-
-        # Highlight the last node in the final path
-        self.nodes[self.current_path[-1]].set_state("final")
-
-        self.animation_timer.stop()
-        self.playback_finished.emit()
-
-        # Final status update once animation is fully complete
-        if self.status_panel:
-            visited_order = self.final_visited_order or self.current_path
-            self.status_panel.show_path(
-                self.current_path,
-                self.get_total_distance(),
-                visited_order,
-                self.get_edge_weight,
-                self._label_lookup,
-            )
-
-    def get_total_distance(self):
-        total = 0
-        for i in range(len(self.current_path) - 1):
-            current = self.current_path[i]
-            next_node = self.current_path[i + 1]
-            edge = self._edge_item_for(current, next_node)
-            if edge:
-                total += edge.weight
-        return total
+    def set_badges_visible(self, visible):
+        for node in self.nodes.values():
+            node.set_badge_visible(bool(visible))
 
     def get_edge_weight(self, start, end):
         edge = self._edge_item_for(start, end)
         if edge:
             return edge.weight
         return 0
-
-    def reset(self):
-        # Stop any ongoing animation
-        self.animation_timer.stop()
-        self.current_path = []
-        self.steps = []
-        self.step_index = 0
-        self.visited_order = []
-        self.final_visited_order = []
-        self.step_state = None
-        self.pending_edge_start = None
-        self._clear_message()
-        self.ready_params = None
-        self.finalized = False
-        self._current_node_id = None
-
-        # Reset all nodes and edges
-        for node in self.nodes.values():
-            node.set_state("default")
-        for edge in self.edges.values():
-            edge.set_state("default")
-
-        # Clear status panel
-        if self.status_panel:
-            self.status_panel.clear()

@@ -5,8 +5,10 @@ from PyQt6.QtGui import QAction, QActionGroup
 from .graph_view import GraphView
 from .controls_panel import ControlsPanel
 from .status_panel import StatusPanel
+from .playback_controller import PlaybackController
 from .theme import current_theme, get_theme_manager, make_app_icon
 from dijkstra_dashboard.core.graph import Graph
+from dijkstra_dashboard.core.algorithms import list_algorithm_specs
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -42,8 +44,15 @@ class MainWindow(QMainWindow):
         right_layout.addWidget(self.status_panel)
 
         # Create and add graph view
-        self.graph_view = GraphView(status_panel=self.status_panel)
+        self.graph_view = GraphView()
         left_layout.addWidget(self.graph_view)
+
+        # Playback controller owns the trace + replay state; the view renders frames.
+        self.playback = PlaybackController(parent=self)
+
+        self.controls_panel.set_algorithms(
+            [(spec.name, spec.name.capitalize()) for spec in list_algorithm_specs()]
+        )
         self.controls_panel.set_nodes(self.graph_view.get_node_items())
         if self.graph_view.get_graph():
             self._set_directed_toggle(self.graph_view.get_graph().directed)
@@ -66,13 +75,22 @@ class MainWindow(QMainWindow):
         self.controls_panel.run_button.clicked.connect(self.start_visualization)
         self.controls_panel.reset_button.clicked.connect(self.reset_visualization)
         self.controls_panel.step_button.clicked.connect(self.step_visualization)
+        self.controls_panel.step_back_button.clicked.connect(self.step_back)
         self.controls_panel.play_button.clicked.connect(self.toggle_playback)
         self.controls_panel.speed_slider.valueChanged.connect(self.on_speed_changed)
+        self.controls_panel.timeline_slider.valueChanged.connect(self.on_timeline_changed)
         self.controls_panel.help_button.clicked.connect(self.show_controls_help)
         self.controls_panel.directed_toggle.toggled.connect(self.on_directed_toggled)
         self.graph_view.graph_changed.connect(self.on_graph_changed)
         self.graph_view.message_changed.connect(self.on_message_changed)
-        self.graph_view.playback_finished.connect(self.on_playback_finished)
+        self.graph_view.status_message.connect(self.status_panel.update_status)
+
+        # Playback controller drives all run rendering / status.
+        self.playback.run_loaded.connect(self.on_run_loaded)
+        self.playback.frame_changed.connect(self.on_frame_changed)
+        self.playback.playing_changed.connect(self.on_playing_changed)
+        self.playback.run_error.connect(self.on_run_error)
+        self.playback.run_finished.connect(self.on_run_finished)
 
         manager = get_theme_manager()
         manager.theme_changed.connect(self.apply_theme)
@@ -82,7 +100,12 @@ class MainWindow(QMainWindow):
         self.on_speed_changed(self.controls_panel.speed_slider.value())
 
     def on_graph_changed(self):
+        # Every mutation path emits graph_changed exactly once (F5). The handler
+        # must be idempotent and cheap (F6): drop the stale run and reset the view.
         self.controls_panel.set_nodes(self.graph_view.get_node_items())
+        self.playback.unload()
+        self.graph_view.clear_run_decorations()
+        self.controls_panel.clear_timeline()
 
     def _set_directed_toggle(self, value):
         toggle = self.controls_panel.directed_toggle
@@ -166,65 +189,110 @@ class MainWindow(QMainWindow):
             action.setChecked(theme_id == theme.id)
             action.blockSignals(blocked)
 
-    def start_visualization(self):
+    def _disambiguated_labels(self, graph, start_node, target_node):
+        label_counts: dict[str, int] = {}
+        for node in graph.nodes():
+            label_counts[node.label] = label_counts.get(node.label, 0) + 1
+        start_label = graph.get_node_label(start_node)
+        target_label = graph.get_node_label(target_node)
+        if label_counts.get(start_label, 0) > 1:
+            start_label = f"{start_label} ({start_node})"
+        if label_counts.get(target_label, 0) > 1:
+            target_label = f"{target_label} ({target_node})"
+        return start_label, target_label
+
+    def _announce_run(self, graph, start_node, target_node, algorithm_name):
+        start_label, target_label = self._disambiguated_labels(graph, start_node, target_node)
+        algo_display = self.controls_panel.algorithm_combo.currentText() or algorithm_name
+        self.status_panel.clear()
+        self.status_panel.update_status(
+            f"Running {algo_display} from {start_label} to {target_label}"
+        )
+
+    def _load_run(self):
+        """Load the current graph/params into the controller. Returns True on load."""
         start_node = self.controls_panel.get_start_node_id()
         target_node = self.controls_panel.get_target_node_id()
         graph = self.graph_view.get_graph()
-        if graph:
-            label_counts: dict[str, int] = {}
-            for node in graph.nodes():
-                label_counts[node.label] = label_counts.get(node.label, 0) + 1
-            start_label = graph.get_node_label(start_node)
-            target_label = graph.get_node_label(target_node)
-            if label_counts.get(start_label, 0) > 1:
-                start_label = f"{start_label} ({start_node})"
-            if label_counts.get(target_label, 0) > 1:
-                target_label = f"{target_label} ({target_node})"
-        else:
-            start_label = start_node
-            target_label = target_node
+        if graph is None:
+            return False
+        algorithm_name = self.controls_panel.get_algorithm_name()
+        if not self.playback.load_run(
+            graph, algorithm_name, {"start": start_node, "target": target_node}
+        ):
+            return False
+        self._announce_run(graph, start_node, target_node, algorithm_name)
+        return True
 
-        # Clear status panel
-        self.status_panel.clear()
-        self.status_panel.update_status(
-            f"Starting visualization from {start_label} to {target_label}"
-        )
+    def _ensure_loaded(self):
+        if self.playback.is_loaded:
+            return True
+        return self._load_run()
 
-        # Run visualization
-        self.graph_view.start_visualization(start_node, target_node)
-        self.controls_panel.play_button.setText("Pause")
-        # Delay status panel update until animation completes
-        pass
+    def start_visualization(self):
+        # Run always reloads from scratch, then plays (Q9).
+        if self._load_run():
+            self.playback.play()
 
     def step_visualization(self):
-        start_node = self.controls_panel.get_start_node_id()
-        target_node = self.controls_panel.get_target_node_id()
-        self.graph_view.step_once(start_node, target_node)
-        self.controls_panel.play_button.setText("Play")
+        if self._ensure_loaded():
+            self.playback.step_forward()
+
+    def step_back(self):
+        self.playback.step_back()
 
     def toggle_playback(self):
-        if self.graph_view.animation_timer.isActive():
-            self.graph_view.pause_playback()
-            self.controls_panel.play_button.setText("Play")
-            return
-
-        start_node = self.controls_panel.get_start_node_id()
-        target_node = self.controls_panel.get_target_node_id()
-        if self.graph_view.prepare_visualization(start_node, target_node, force=False):
-            self.graph_view.start_playback()
-            self.controls_panel.play_button.setText("Pause")
+        # Play toggles; loads first if needed, but never autoplays on load.
+        if self._ensure_loaded():
+            self.playback.toggle()
 
     def reset_visualization(self):
-        self.graph_view.reset()
+        self.playback.unload()
+        self.graph_view.clear_run_decorations()
+        self.controls_panel.clear_timeline()
         self.status_panel.clear()
         self.controls_panel.play_button.setText("Play")
 
     def on_speed_changed(self, value):
         interval_ms = 1100 - (value * 100)
-        self.graph_view.set_animation_interval(interval_ms)
+        self.playback.set_interval(interval_ms)
 
-    def on_playback_finished(self):
-        self.controls_panel.play_button.setText("Play")
+    def on_timeline_changed(self, value):
+        self.playback.seek(value)
+
+    def on_run_loaded(self, meta):
+        self.controls_panel.set_timeline(meta["total"])
+
+    def on_frame_changed(self, frame):
+        self.graph_view.render_frame(frame)
+        self.controls_panel.set_timeline_index(frame.index)
+
+    def on_playing_changed(self, playing):
+        self.controls_panel.play_button.setText("Pause" if playing else "Play")
+
+    def on_run_error(self, message):
+        self.status_panel.update_status(message, "error")
+        self.on_message_changed(message)
+
+    def on_run_finished(self, summary):
+        path = summary.get("path")
+        if path:
+            self.status_panel.show_path(
+                list(path),
+                summary.get("distance"),
+                list(summary.get("visited_order", ())),
+                self.graph_view.get_edge_weight,
+                self.graph_view.label_lookup,
+            )
+            self.status_panel.update_status(
+                f"Visits: {summary['visits']} · "
+                f"Relaxations: {summary['relaxations']} · "
+                f"Comparisons: {summary['comparisons']}",
+                "text",
+            )
+        else:
+            self.on_message_changed("No path found.")
+            self.status_panel.update_status("No path found.", "error")
 
     def on_directed_toggled(self, checked):
         graph = self.graph_view.get_graph()
@@ -257,10 +325,13 @@ class MainWindow(QMainWindow):
             "- Right-drag: pan\n"
             "- Zoom: use +/- buttons or 100%\n\n"
             "Playback:\n"
-            "- Run Visualization: restart and play\n"
-            "- Step: advance one step\n"
+            "- Algorithm selector: choose which algorithm to replay\n"
+            "- Run Visualization: reload the trace and play from the start\n"
+            "- Step: advance one step (loads the run if needed)\n"
+            "- Step Back: rewind one step\n"
             "- Play/Pause: toggle playback\n"
-            "- Speed slider: adjust animation speed",
+            "- Timeline scrubber: drag to jump to any step\n"
+            "- Speed slider: adjust playback speed",
         )
 
     def open_graph(self):
