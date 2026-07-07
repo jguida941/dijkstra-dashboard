@@ -1,7 +1,9 @@
 import pytest
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QColor
 
 from dijkstra_dashboard.ui.main_window import MainWindow
+from dijkstra_dashboard.ui.theme import get_theme_manager
 
 
 pytestmark = pytest.mark.ui
@@ -56,6 +58,47 @@ def test_orientation_ghost_edge_stays_relaxed(qapp):
 
     edge_ac = window.graph_view._edge_item_for("A", "C")
     assert edge_ac._state == "relaxed"
+    window.close()
+
+
+def test_relax_impact_flash_lands_only_near_destination(qapp, monkeypatch):
+    get_theme_manager().set_theme("neon-dark", persist=False)
+    window = MainWindow()
+    captured = {}
+
+    monkeypatch.setattr(window.graph_view.animator, "lightning", lambda *args, **kwargs: None)
+    monkeypatch.setattr(window.graph_view.animator, "travel_dot", lambda *args, **kwargs: None)
+
+    def fake_animate_color(key, duration, apply_fn):
+        captured[key] = apply_fn
+        apply_fn(0.0)
+
+    monkeypatch.setattr(window.graph_view.animator, "animate_color", fake_animate_color)
+
+    _load(window)
+    window.playback.step_forward()  # visit A
+    window.playback.step_forward()  # relax A -> B
+
+    node_b = window.graph_view.nodes["B"]
+    state_ring = QColor(node_b._style.ring)
+    muted_badge = QColor(node_b.badge.brush().color())
+    ring_flash = next(fn for key, fn in captured.items() if key[0] == "node-ring-flash")
+    badge_flash = next(fn for key, fn in captured.items() if key[0] == "node-badge-flash")
+
+    ring_flash(0.5)
+    badge_flash(0.5)
+    assert node_b.pen().color() == state_ring
+    assert node_b.badge.brush().color() == muted_badge
+
+    ring_flash(0.9)
+    badge_flash(0.9)
+    assert node_b.pen().color() == QColor("#ffb020")
+    assert node_b.badge.brush().color() == QColor("#ffb020")
+
+    ring_flash(1.0)
+    badge_flash(1.0)
+    assert node_b.pen().color() == state_ring
+    assert node_b.badge.brush().color() == muted_badge
     window.close()
 
 

@@ -29,6 +29,7 @@ class GraphNode(QGraphicsEllipseItem):
         self._badge_text: str | None = None
         self._badge_master_visible = True
         self._badge_emphasis = False
+        self._badge_flash_color: str | None = None
         self._font_scale = 1.0
 
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
@@ -153,6 +154,12 @@ class GraphNode(QGraphicsEllipseItem):
 
     def set_badge_emphasis(self, emphasized: bool):
         self._badge_emphasis = bool(emphasized)
+        if not emphasized:
+            self._badge_flash_color = None
+        self._apply_badge_brush()
+
+    def set_badge_flash(self, color: str | None):
+        self._badge_flash_color = color
         self._apply_badge_brush()
 
     def set_ring_flash(self, color: str | None):
@@ -203,7 +210,7 @@ class GraphNode(QGraphicsEllipseItem):
         theme = current_theme()
         # Emphasis uses the warning color — the same yellow the travel bolt
         # wears — so "value just changed" reads as one continuous gesture.
-        color = theme.warning if self._badge_emphasis else theme.muted_text
+        color = self._badge_flash_color or (theme.warning if self._badge_emphasis else theme.muted_text)
         self.badge.setBrush(QBrush(QColor(color)))
 
     def _apply_ring_pen(self):

@@ -122,3 +122,37 @@ def test_from_dict_validates_animation_choices_and_clamps_motion_scale():
     assert theme.animation.impact_ring is False
     assert theme.animation.impact_badge is False
     assert theme.animation.motion_scale == 2.0
+
+
+@pytest.mark.ui
+def test_from_dict_round_trips_theme_studio_app_style_and_animation_colors():
+    data = {
+        "id": "studio",
+        "name": "Studio",
+        "animation": {
+            "travel_color": "#ffaa00",
+            "impact_color": "#ff5500",
+            "badge_flash_color": "#ffee66",
+        },
+        "app_style": {
+            "border_radius": 99,
+            "small_radius": 7,
+            "border_width": 3,
+            "padding_y": 9,
+            "slider_handle_size": 18,
+        },
+    }
+
+    theme = theme_from_dict(data)
+    saved = theme_to_dict(theme)
+    rebuilt = theme_from_dict(saved)
+
+    assert theme.animation.travel_color == "#ffaa00"
+    assert theme.animation.impact_color == "#ff5500"
+    assert theme.animation.badge_flash_color == "#ffee66"
+    assert theme.app_style.border_radius == 32
+    assert theme.app_style.small_radius == 7
+    assert theme.app_style.border_width == 3
+    assert theme.app_style.padding_y == 9
+    assert theme.app_style.slider_handle_size == 18
+    assert rebuilt == theme

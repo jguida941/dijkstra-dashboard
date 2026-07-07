@@ -3,7 +3,8 @@ from pathlib import Path
 
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QFileDialog, QMessageBox, QLabel, QComboBox, QSlider, QLineEdit,
-                             QTextEdit, QPlainTextEdit, QAbstractSpinBox, QDialog)
+                             QTextEdit, QPlainTextEdit, QAbstractSpinBox, QDialog, QSplitter,
+                             QInputDialog)
 from PyQt6.QtCore import Qt, QSettings
 from PyQt6.QtGui import QAction, QActionGroup, QShortcut, QKeySequence, QUndoStack
 from .graph_view import GraphView
@@ -65,7 +66,8 @@ class MainWindow(QMainWindow):
 
         # Recent files (F3): tests inject an isolated tmp-ini QSettings; the app
         # passes None and gets a bare QSettings() (org/app set in __main__).
-        self.recents = RecentFiles(settings if settings is not None else QSettings())
+        self.settings = settings if settings is not None else QSettings()
+        self.recents = RecentFiles(self.settings)
         # Examples ship only in a source checkout; scanned once at startup.
         self._example_paths = self._scan_examples()
 
@@ -81,19 +83,30 @@ class MainWindow(QMainWindow):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         main_layout = QHBoxLayout(central_widget)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.main_splitter.setChildrenCollapsible(False)
+        main_layout.addWidget(self.main_splitter)
         
         # Left panel (graph and controls)
         left_panel = QWidget()
         left_layout = QVBoxLayout(left_panel)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        self.graph_splitter = QSplitter(Qt.Orientation.Vertical)
+        self.graph_splitter.setChildrenCollapsible(False)
+        left_layout.addWidget(self.graph_splitter)
         
         # Create and add controls panel
         self.controls_panel = ControlsPanel()
-        left_layout.addWidget(self.controls_panel)
+        controls_wrapper = QWidget()
+        controls_layout = QVBoxLayout(controls_wrapper)
+        controls_layout.setContentsMargins(0, 0, 0, 0)
+        controls_layout.addWidget(self.controls_panel)
 
         self.notice_label = QLabel("")
         self.notice_label.setObjectName("noticeLabel")
         self.notice_label.setVisible(False)
-        left_layout.addWidget(self.notice_label)
+        controls_layout.addWidget(self.notice_label)
 
         # Right panel (status)
         right_panel = QWidget()
@@ -110,7 +123,11 @@ class MainWindow(QMainWindow):
         # actions (New / Demo / Generate / Open) clear it instead.
         self.undo_stack = QUndoStack(self)
         self.graph_view.undo_stack = self.undo_stack
-        left_layout.addWidget(self.graph_view)
+        self.graph_splitter.addWidget(controls_wrapper)
+        self.graph_splitter.addWidget(self.graph_view)
+        self.graph_splitter.setStretchFactor(0, 0)
+        self.graph_splitter.setStretchFactor(1, 1)
+        self.graph_splitter.setSizes([120, 720])
 
         # Playback controller owns the trace + replay state; the view renders frames.
         self.playback = PlaybackController(parent=self)
@@ -130,9 +147,15 @@ class MainWindow(QMainWindow):
             "Pan: right-drag"
         )
 
-        # Add panels to main layout
-        main_layout.addWidget(left_panel, stretch=2)
-        main_layout.addWidget(right_panel, stretch=1)
+        # Add panels to movable splitters.
+        self.main_splitter.addWidget(left_panel)
+        self.main_splitter.addWidget(right_panel)
+        self.main_splitter.setStretchFactor(0, 2)
+        self.main_splitter.setStretchFactor(1, 1)
+        self.main_splitter.setSizes([760, 360])
+        self._restore_splitter_layout()
+        self.main_splitter.splitterMoved.connect(self._save_splitter_layout)
+        self.graph_splitter.splitterMoved.connect(self._save_splitter_layout)
 
         # Menu actions
         self.setup_menus()
@@ -305,6 +328,17 @@ class MainWindow(QMainWindow):
         graph_menu.addAction(generate_action)
 
         graph_menu.addSeparator()
+        self.snap_to_grid_action = QAction("Snap to Grid", self)
+        self.snap_to_grid_action.setCheckable(True)
+        self.snap_to_grid_action.toggled.connect(self.on_snap_to_grid_toggled)
+        graph_menu.addAction(self.snap_to_grid_action)
+
+        grid_size_action = QAction("Grid Size...", self)
+        grid_size_action.triggered.connect(self.set_grid_size)
+        graph_menu.addAction(grid_size_action)
+        self._restore_grid_settings()
+
+        graph_menu.addSeparator()
 
         layout_menu = graph_menu.addMenu("Layout")
         for label, name in (("Circle", "circle"), ("Grid", "grid"), ("Spring", "spring")):
@@ -325,6 +359,32 @@ class MainWindow(QMainWindow):
             app.setPalette(theme.palette())
             app.setStyleSheet(theme.qss())
         self.setWindowIcon(make_app_icon(theme))
+
+    def _restore_splitter_layout(self):
+        main_state = self.settings.value("layout/main_splitter")
+        graph_state = self.settings.value("layout/graph_splitter")
+        if main_state is not None:
+            self.main_splitter.restoreState(main_state)
+        if graph_state is not None:
+            self.graph_splitter.restoreState(graph_state)
+
+    def _save_splitter_layout(self, *_args):
+        self.settings.setValue("layout/main_splitter", self.main_splitter.saveState())
+        self.settings.setValue("layout/graph_splitter", self.graph_splitter.saveState())
+
+    def _restore_grid_settings(self):
+        try:
+            size = int(float(self.settings.value("graph/grid_size", self.graph_view.grid_size())))
+        except (TypeError, ValueError):
+            size = int(self.graph_view.grid_size())
+        self.graph_view.set_grid_size(size)
+
+        raw = self.settings.value("graph/snap_to_grid", False)
+        enabled = raw if isinstance(raw, bool) else str(raw).lower() in {"1", "true", "yes"}
+        blocked = self.snap_to_grid_action.blockSignals(True)
+        self.snap_to_grid_action.setChecked(enabled)
+        self.snap_to_grid_action.blockSignals(blocked)
+        self.graph_view.set_snap_to_grid(enabled)
 
     def _rebuild_theme_menu(self):
         # Rebuild the Theme submenu from the manager's live registry, reusing the
@@ -571,6 +631,25 @@ class MainWindow(QMainWindow):
                 )
             else:
                 self.inspector.update_status("Undirected mode enabled (one weight per edge).")
+
+    def on_snap_to_grid_toggled(self, enabled):
+        self.graph_view.set_snap_to_grid(enabled)
+        self.settings.setValue("graph/snap_to_grid", bool(enabled))
+
+    def set_grid_size(self):
+        value, ok = QInputDialog.getInt(
+            self,
+            "Grid Size",
+            "Grid spacing:",
+            int(self.graph_view.grid_size()),
+            5,
+            200,
+            5,
+        )
+        if ok:
+            self.graph_view.set_grid_size(value)
+            self.settings.setValue("graph/grid_size", value)
+            self.inspector.update_status(f"Grid size set to {value}.")
 
     def show_controls_help(self):
         QMessageBox.information(

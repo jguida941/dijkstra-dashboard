@@ -7,7 +7,7 @@ snapped (animate=False) and animated (tiny duration + waitUntil).
 from __future__ import annotations
 
 import pytest
-from PyQt6.QtCore import QSettings
+from PyQt6.QtCore import QPointF, QSettings, Qt
 from PyQt6.QtWidgets import QDialog, QMessageBox
 
 import dijkstra_dashboard.ui.main_window as mw_module
@@ -67,6 +67,35 @@ def test_graph_menu_has_layout_and_examples_submenus(qapp, tmp_path):
     examples = _submenu(graph_menu, "Examples")
     assert examples is not None
     assert len(examples.actions()) >= 1
+    window.close()
+
+
+def test_main_layout_exposes_horizontal_and_vertical_splitters(qapp, tmp_path):
+    window = MainWindow(settings=_ini_settings(tmp_path))
+
+    assert window.main_splitter.orientation() == Qt.Orientation.Horizontal
+    assert window.graph_splitter.orientation() == Qt.Orientation.Vertical
+    assert window.main_splitter.count() == 2
+    assert window.graph_splitter.count() == 2
+    window.close()
+
+
+def test_snap_to_grid_action_and_dragged_position_rounding(qapp, tmp_path):
+    window = MainWindow(settings=_ini_settings(tmp_path))
+    graph_menu = _menu(window, "Graph")
+    action = _action(graph_menu, "Snap to Grid")
+    assert action is not None
+
+    window.graph_view.set_grid_size(25)
+    action.trigger()
+    assert window.graph_view.snap_to_grid()
+
+    node = window.graph_view.nodes["A"]
+    node.setPos(QPointF(37, 63))
+
+    assert node.pos().x() == pytest.approx(25)
+    assert node.pos().y() == pytest.approx(75)
+    assert window.graph_view.get_graph().get_node_position("A") == pytest.approx((25, 75))
     window.close()
 
 

@@ -10,22 +10,27 @@ drops the preview; Save persists a real custom theme and switches to it.
 from __future__ import annotations
 
 import copy
+import json
 import re
+from pathlib import Path
 
 from PyQt6.QtCore import QRegularExpression, QTimer
 from PyQt6.QtGui import QColor, QRegularExpressionValidator
 from PyQt6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QColorDialog,
     QComboBox,
     QDialog,
     QDoubleSpinBox,
+    QFileDialog,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QListWidget,
+    QPlainTextEdit,
     QPushButton,
     QScrollArea,
     QStackedWidget,
@@ -51,7 +56,14 @@ _HEX_RE = re.compile(_HEX_PATTERN)
 
 _PREVIEW_DEBOUNCE_MS = 200
 
-_CATEGORIES = ("Canvas & Chrome", "Node states", "Edge states", "Effects")
+_CATEGORIES = (
+    "Canvas & Chrome",
+    "Node states",
+    "Edge states",
+    "Qt style",
+    "Effects",
+    "Import / Export",
+)
 
 #: Chrome color fields (label, working-dict key). None of these carry alpha.
 _CHROME_FIELDS = (
@@ -71,6 +83,37 @@ _CHROME_FIELDS = (
     ("Button border", "button_border"),
     ("Highlight", "highlight"),
     ("Highlight text", "highlight_text"),
+)
+
+_APP_STYLE_GROUPS = (
+    (
+        "Borders & Shape",
+        (
+            ("Border radius", "border_radius", 0, 32),
+            ("Small radius", "small_radius", 0, 24),
+            ("Border width", "border_width", 0, 6),
+        ),
+    ),
+    (
+        "Spacing",
+        (
+            ("Button padding Y", "padding_y", 0, 24),
+            ("Button padding X", "padding_x", 0, 32),
+            ("Input padding Y", "input_padding_y", 0, 24),
+            ("Input padding X", "input_padding_x", 0, 32),
+        ),
+    ),
+    (
+        "Controls",
+        (
+            ("Control min height", "control_min_height", 18, 80),
+            ("Checkbox size", "checkbox_size", 8, 32),
+            ("Slider groove height", "slider_groove_height", 1, 24),
+            ("Slider handle size", "slider_handle_size", 6, 40),
+            ("Scrollbar width", "scrollbar_width", 4, 32),
+            ("Splitter handle width", "splitter_handle_width", 1, 24),
+        ),
+    ),
 )
 
 
@@ -163,6 +206,8 @@ class ThemeEditorDialog(QDialog):
         self._combos: dict[tuple, QComboBox] = {}
         self._none_checks: dict[tuple, QCheckBox] = {}
         self._glow_enabled_check: QCheckBox | None = None
+        self._json_paste: QPlainTextEdit | None = None
+        self._qss_preview: QPlainTextEdit | None = None
 
         self._preview_timer = QTimer(self)
         self._preview_timer.setSingleShot(True)
@@ -230,6 +275,7 @@ class ThemeEditorDialog(QDialog):
             return  # a transiently-invalid working state simply skips this tick.
         self._manager.register_theme(preview)
         self._manager.set_theme(PREVIEW_THEME_ID, persist=False)
+        self._refresh_export_views()
 
     def _flush_preview(self):
         """Test hook: apply any pending preview synchronously."""
@@ -328,6 +374,12 @@ class ThemeEditorDialog(QDialog):
             return self._build_node_page()
         if name == "Edge states":
             return self._build_edge_page()
+        if name == "Qt style":
+            return self._build_qt_style_page()
+        if name == "Effects":
+            return self._build_effects_page()
+        if name == "Import / Export":
+            return self._build_import_export_page()
         return self._build_effects_page()
 
     def _build_chrome_page(self):
@@ -367,6 +419,18 @@ class ThemeEditorDialog(QDialog):
             form.addRow("Z", self._num_spin(("edge_styles", state, "z"), -5.0, 5.0, 0.1))
             form.addRow("Halo", self._nullable_color_row(("edge_styles", state, "halo")))
             form.addRow("Opacity", self._num_spin(("edge_styles", state, "opacity"), 0.0, 1.0, 0.05))
+            layout.addWidget(group)
+        layout.addStretch(1)
+        return page
+
+    def _build_qt_style_page(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        for title, rows in _APP_STYLE_GROUPS:
+            group = QGroupBox(title)
+            form = QFormLayout(group)
+            for label, key, low, high in rows:
+                form.addRow(label, self._int_spin(("app_style", key), low, high))
             layout.addWidget(group)
         layout.addStretch(1)
         return page
@@ -443,11 +507,85 @@ class ThemeEditorDialog(QDialog):
             self._bool_check(("animation", "impact_badge"), "Flash the receiving distance badge"),
         )
         animation_layout.addRow(
+            "Travel color",
+            self._nullable_color_row(("animation", "travel_color")),
+        )
+        animation_layout.addRow(
+            "Impact ring color",
+            self._nullable_color_row(("animation", "impact_color")),
+        )
+        animation_layout.addRow(
+            "Badge flash color",
+            self._nullable_color_row(("animation", "badge_flash_color")),
+        )
+        animation_layout.addRow(
             "Motion speed",
             self._num_spin(("animation", "motion_scale"), 0.25, 2.0, 0.05),
         )
         layout.addWidget(animation_group)
         layout.addStretch(1)
+        return page
+
+    def _build_import_export_page(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+
+        file_group = QGroupBox("File")
+        file_layout = QHBoxLayout(file_group)
+        import_button = QPushButton("Import JSON...")
+        import_button.clicked.connect(self._import_json_file)
+        file_layout.addWidget(import_button)
+        export_json_button = QPushButton("Export JSON...")
+        export_json_button.clicked.connect(self._export_json_file)
+        file_layout.addWidget(export_json_button)
+        export_qss_button = QPushButton("Export QSS...")
+        export_qss_button.clicked.connect(self._export_qss_file)
+        file_layout.addWidget(export_qss_button)
+        file_layout.addStretch(1)
+        layout.addWidget(file_group)
+
+        paste_group = QGroupBox("Paste JSON theme")
+        paste_layout = QVBoxLayout(paste_group)
+        self._json_paste = QPlainTextEdit()
+        self._json_paste.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+        self._json_paste.setPlaceholderText(
+            "Paste an exported Dijkstra Dashboard theme JSON here."
+        )
+        paste_layout.addWidget(self._json_paste, stretch=1)
+        paste_buttons = QHBoxLayout()
+        apply_button = QPushButton("Apply pasted JSON")
+        apply_button.clicked.connect(self._apply_pasted_json)
+        paste_buttons.addWidget(apply_button)
+        load_current_button = QPushButton("Load current JSON")
+        load_current_button.clicked.connect(self._load_current_json_into_paste)
+        paste_buttons.addWidget(load_current_button)
+        copy_json_button = QPushButton("Copy JSON")
+        copy_json_button.clicked.connect(self._copy_json)
+        paste_buttons.addWidget(copy_json_button)
+        clear_button = QPushButton("Clear")
+        clear_button.clicked.connect(self._json_paste.clear)
+        paste_buttons.addWidget(clear_button)
+        paste_buttons.addStretch(1)
+        paste_layout.addLayout(paste_buttons)
+        layout.addWidget(paste_group, stretch=1)
+
+        qss_group = QGroupBox("Generated QSS preview")
+        qss_layout = QVBoxLayout(qss_group)
+        self._qss_preview = QPlainTextEdit()
+        self._qss_preview.setReadOnly(True)
+        self._qss_preview.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+        qss_layout.addWidget(self._qss_preview, stretch=1)
+        qss_buttons = QHBoxLayout()
+        refresh_button = QPushButton("Refresh QSS")
+        refresh_button.clicked.connect(self._refresh_export_views)
+        qss_buttons.addWidget(refresh_button)
+        copy_button = QPushButton("Copy QSS")
+        copy_button.clicked.connect(self._copy_qss)
+        qss_buttons.addWidget(copy_button)
+        qss_buttons.addStretch(1)
+        qss_layout.addLayout(qss_buttons)
+        layout.addWidget(qss_group, stretch=1)
+
         return page
 
     # -- widget factories (register into the per-path maps) ------------
@@ -493,6 +631,16 @@ class ThemeEditorDialog(QDialog):
         spin.setDecimals(2)
         spin.setValue(float(self._get(path)))
         spin.valueChanged.connect(lambda v, p=path: self._set_value(p, float(v)))
+        self._spins[path] = spin
+        return spin
+
+    def _int_spin(self, path, low, high):
+        spin = QDoubleSpinBox()
+        spin.setRange(low, high)
+        spin.setSingleStep(1)
+        spin.setDecimals(0)
+        spin.setValue(float(self._get(path)))
+        spin.valueChanged.connect(lambda v, p=path: self._set_value(p, int(round(v))))
         self._spins[path] = spin
         return spin
 
@@ -552,6 +700,7 @@ class ThemeEditorDialog(QDialog):
             self._glow_enabled_check.blockSignals(True)
             self._glow_enabled_check.setChecked(bool(self._get(("glow_enabled",))))
             self._glow_enabled_check.blockSignals(False)
+        self._refresh_export_views()
 
     def _select_category(self, name):
         self._category_list.setCurrentRow(_CATEGORIES.index(name))
@@ -570,11 +719,138 @@ class ThemeEditorDialog(QDialog):
             self._working["node_styles"] = copy.deepcopy(self._seed["node_styles"])
         elif name == "Edge states":
             self._working["edge_styles"] = copy.deepcopy(self._seed["edge_styles"])
+        elif name == "Qt style":
+            self._working["app_style"] = copy.deepcopy(self._seed["app_style"])
         elif name == "Effects":
             self._working["glow_enabled"] = self._seed["glow_enabled"]
             self._working["animation"] = copy.deepcopy(self._seed["animation"])
+        elif name == "Import / Export":
+            self._refresh_export_views()
+            return
         self._refresh_all_widgets()
         self._mark_dirty()
+
+    # ------------------------------------------------------------------
+    # Import / export
+    # ------------------------------------------------------------------
+    def _save_ready_theme_data(self):
+        name = self._name_edit.text().strip()
+        if not name:
+            raise ValueError("Theme name cannot be empty.")
+        data = copy.deepcopy(self._working)
+        data["id"] = self._current_slug()
+        data["name"] = name
+        # Normalize through the validator so exported JSON is complete and stable.
+        return theme_to_dict(theme_from_dict(data))
+
+    def _save_ready_theme(self):
+        return theme_from_dict(self._save_ready_theme_data())
+
+    def _load_theme_data(self, data, source="theme JSON"):
+        try:
+            theme = theme_from_dict(data)
+        except Exception as exc:
+            self._show_error(f"Could not import {source}: {exc}")
+            return False
+
+        self._working = theme_to_dict(theme)
+        self._name_edit.blockSignals(True)
+        self._name_edit.setText(theme.name)
+        self._name_edit.blockSignals(False)
+        self._slug_label.setText(f"id: {self._current_slug()}")
+        self._refresh_all_widgets()
+        self._mark_dirty()
+        self._show_error("")
+        return True
+
+    def _import_json_file(self):
+        filename, _ = QFileDialog.getOpenFileName(
+            self, "Import Theme", "", "JSON Files (*.json);;All Files (*)"
+        )
+        if not filename:
+            return
+        try:
+            data = json.loads(Path(filename).read_text(encoding="utf-8"))
+        except Exception as exc:
+            self._show_error(f"Could not read theme JSON: {exc}")
+            return
+        self._load_theme_data(data, Path(filename).name)
+
+    def _export_json_file(self):
+        filename, _ = QFileDialog.getSaveFileName(
+            self, "Export Theme JSON", f"{self._current_slug()}.json",
+            "JSON Files (*.json);;All Files (*)"
+        )
+        if not filename:
+            return
+        path = Path(filename)
+        if path.suffix.lower() != ".json":
+            path = path.with_suffix(".json")
+        try:
+            data = self._save_ready_theme_data()
+            path.write_text(json.dumps(data, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
+        except Exception as exc:
+            self._show_error(f"Could not export JSON: {exc}")
+
+    def _export_qss_file(self):
+        filename, _ = QFileDialog.getSaveFileName(
+            self, "Export Generated QSS", f"{self._current_slug()}.qss",
+            "Qt Stylesheets (*.qss);;All Files (*)"
+        )
+        if not filename:
+            return
+        path = Path(filename)
+        if path.suffix.lower() != ".qss":
+            path = path.with_suffix(".qss")
+        try:
+            path.write_text(self._save_ready_theme().qss(), encoding="utf-8")
+        except Exception as exc:
+            self._show_error(f"Could not export QSS: {exc}")
+
+    def _apply_pasted_json(self):
+        if self._json_paste is None:
+            return False
+        text = self._json_paste.toPlainText().strip()
+        if not text:
+            self._show_error("Paste a theme JSON first.")
+            return False
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError as exc:
+            self._show_error(f"Invalid JSON: {exc}")
+            return False
+        return self._load_theme_data(data, "pasted JSON")
+
+    def _load_current_json_into_paste(self):
+        if self._json_paste is None:
+            return
+        try:
+            data = self._save_ready_theme_data()
+        except Exception as exc:
+            self._show_error(str(exc))
+            return
+        self._json_paste.setPlainText(json.dumps(data, indent=2, ensure_ascii=True))
+
+    def _refresh_export_views(self):
+        if self._qss_preview is None:
+            return
+        try:
+            self._qss_preview.setPlainText(self._save_ready_theme().qss())
+        except Exception:
+            self._qss_preview.setPlainText("")
+
+    def _copy_qss(self):
+        if self._qss_preview is None:
+            return
+        QApplication.clipboard().setText(self._qss_preview.toPlainText())
+
+    def _copy_json(self):
+        try:
+            data = self._save_ready_theme_data()
+        except Exception as exc:
+            self._show_error(str(exc))
+            return
+        QApplication.clipboard().setText(json.dumps(data, indent=2, ensure_ascii=True))
 
     # ------------------------------------------------------------------
     # Save / cancel / close

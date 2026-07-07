@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from PyQt6.QtCore import QObject, QPointF, Qt, pyqtSignal
@@ -63,6 +63,26 @@ class AnimationStyle:
     impact_badge: bool
     final_reveal: str
     motion_scale: float = 1.0
+    travel_color: str | None = None
+    impact_color: str | None = None
+    badge_flash_color: str | None = None
+
+
+@dataclass(frozen=True)
+class AppStyle:
+    border_radius: int = 6
+    small_radius: int = 4
+    border_width: int = 1
+    padding_y: int = 6
+    padding_x: int = 10
+    input_padding_y: int = 4
+    input_padding_x: int = 8
+    control_min_height: int = 28
+    checkbox_size: int = 14
+    slider_groove_height: int = 5
+    slider_handle_size: int = 14
+    scrollbar_width: int = 12
+    splitter_handle_width: int = 6
 
 
 @dataclass(frozen=True)
@@ -91,6 +111,7 @@ class Theme:
     node_styles: dict[str, NodeStyle]
     edge_styles: dict[str, EdgeStyle]
     animation: AnimationStyle
+    app_style: AppStyle = field(default_factory=AppStyle)
 
     def node_style(self, state: str) -> NodeStyle:
         resolved = NODE_STATE_ALIASES.get(state, state)
@@ -137,6 +158,7 @@ class Theme:
         return palette
 
     def qss(self) -> str:
+        style = self.app_style
         hover_bg = _color_name(lerp_color(QColor(self.button_bg), QColor(self.accent), 0.18))
         pressed_bg = _color_name(lerp_color(QColor(self.button_bg), QColor(self.accent), 0.32))
         disabled_bg = _color_name(lerp_color(QColor(self.button_bg), QColor(self.muted_text), 0.12))
@@ -147,14 +169,22 @@ class Theme:
         zoom_pressed = _color_name(lerp_color(QColor(self.panel_bg), QColor(self.accent), 0.28))
         notice_bg = _color_name(lerp_color(QColor(self.panel_bg), QColor(self.error), 0.22))
         notice_border = _color_name(lerp_color(QColor(self.panel_bg), QColor(self.error), 0.5))
+        tab_bg = _color_name(lerp_color(QColor(self.panel_bg), QColor(self.base_bg), 0.45))
+        tab_hover = _color_name(lerp_color(QColor(self.panel_bg), QColor(self.accent), 0.12))
+        header_bg = _color_name(lerp_color(QColor(self.panel_bg), QColor(self.base_bg), 0.28))
+        scrollbar_bg = _color_name(lerp_color(QColor(self.base_bg), QColor(self.panel_bg), 0.5))
+        scrollbar_handle = _color_name(lerp_color(QColor(self.button_border), QColor(self.accent), 0.28))
+        scrollbar_handle_hover = _color_name(lerp_color(QColor(self.button_border), QColor(self.accent), 0.48))
+        slider_margin = -max(0, round((style.slider_handle_size - style.slider_groove_height) / 2))
 
         return f"""
 QPushButton {{
     background-color: {self.button_bg};
     color: {self.button_text};
-    border: 1px solid {self.button_border};
-    border-radius: 6px;
-    padding: 6px 10px;
+    border: {style.border_width}px solid {self.button_border};
+    border-radius: {style.border_radius}px;
+    padding: {style.padding_y}px {style.padding_x}px;
+    min-height: {style.control_min_height}px;
 }}
 QPushButton:hover {{
     background-color: {hover_bg};
@@ -171,9 +201,10 @@ QPushButton:disabled {{
 QComboBox {{
     background-color: {self.button_bg};
     color: {self.button_text};
-    border: 1px solid {self.button_border};
-    border-radius: 5px;
-    padding: 4px 8px;
+    border: {style.border_width}px solid {self.button_border};
+    border-radius: {style.small_radius}px;
+    padding: {style.input_padding_y}px {style.input_padding_x}px;
+    min-height: {style.control_min_height}px;
 }}
 QComboBox:hover {{
     border-color: {self.accent};
@@ -181,22 +212,98 @@ QComboBox:hover {{
 QComboBox QAbstractItemView {{
     background-color: {self.panel_bg};
     color: {self.text};
-    border: 1px solid {self.button_border};
+    border: {style.border_width}px solid {self.button_border};
+    selection-background-color: {self.highlight};
+    selection-color: {self.highlight_text};
+    outline: 0;
+}}
+QComboBox QAbstractItemView::item {{
+    min-height: {style.control_min_height}px;
+    padding: {style.input_padding_y}px {style.input_padding_x}px;
+}}
+QComboBox QAbstractItemView::item:hover {{
+    background-color: {menu_selected};
+    color: {self.text};
+}}
+QComboBox QAbstractItemView::item:selected {{
+    background-color: {self.highlight};
+    color: {self.highlight_text};
+    border-left: 3px solid {self.accent};
+}}
+QLineEdit, QSpinBox, QDoubleSpinBox {{
+    background-color: {self.base_bg};
+    color: {self.text};
+    border: {style.border_width}px solid {self.button_border};
+    border-radius: {style.small_radius}px;
+    padding: {style.input_padding_y}px {style.input_padding_x}px;
+    min-height: {style.control_min_height}px;
     selection-background-color: {self.highlight};
     selection-color: {self.highlight_text};
 }}
+QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus {{
+    border-color: {self.accent};
+}}
+QTextEdit, QPlainTextEdit, QTableWidget, QListWidget {{
+    background-color: {self.base_bg};
+    color: {self.text};
+    border: {style.border_width}px solid {self.button_border};
+    border-radius: {style.small_radius}px;
+    selection-background-color: {self.highlight};
+    selection-color: {self.highlight_text};
+}}
+QHeaderView::section {{
+    background-color: {header_bg};
+    color: {self.text};
+    border: {style.border_width}px solid {self.button_border};
+    padding: {style.input_padding_y}px {style.input_padding_x}px;
+}}
+QGroupBox {{
+    color: {self.text};
+    border: {style.border_width}px solid {self.button_border};
+    border-radius: {style.border_radius}px;
+    margin-top: 10px;
+    padding: {style.padding_y + 6}px {style.padding_x}px {style.padding_y}px {style.padding_x}px;
+}}
+QGroupBox::title {{
+    subcontrol-origin: margin;
+    left: {style.padding_x}px;
+    padding: 0 {style.input_padding_x}px;
+    color: {self.accent};
+}}
+QTabWidget::pane {{
+    border: {style.border_width}px solid {self.button_border};
+    border-radius: {style.border_radius}px;
+    background-color: {self.panel_bg};
+}}
+QTabBar::tab {{
+    background-color: {tab_bg};
+    color: {self.text};
+    border: {style.border_width}px solid {self.button_border};
+    border-bottom-color: {self.button_border};
+    border-top-left-radius: {style.small_radius}px;
+    border-top-right-radius: {style.small_radius}px;
+    padding: {style.input_padding_y}px {style.padding_x}px;
+}}
+QTabBar::tab:selected {{
+    background-color: {self.panel_bg};
+    border-bottom-color: {self.panel_bg};
+    color: {self.accent};
+}}
+QTabBar::tab:hover {{
+    background-color: {tab_hover};
+}}
 QSlider::groove:horizontal {{
     background-color: {slider_groove};
-    height: 5px;
-    border-radius: 2px;
+    height: {style.slider_groove_height}px;
+    border-radius: {max(0, style.slider_groove_height // 2)}px;
 }}
 QSlider::handle:horizontal {{
     background-color: {self.accent};
-    border: 1px solid {self.highlight_text};
-    width: 14px;
-    height: 14px;
-    margin: -5px 0;
-    border-radius: 7px;
+    border: {style.border_width}px solid {self.highlight_text};
+    width: {style.slider_handle_size}px;
+    height: {style.slider_handle_size}px;
+    margin: {slider_margin}px 0;
+    border-radius: {max(0, style.slider_handle_size // 2)}px;
 }}
 QCheckBox {{
     color: {self.text};
@@ -204,10 +311,10 @@ QCheckBox {{
 }}
 QCheckBox::indicator {{
     background-color: {checkbox_bg};
-    border: 1px solid {self.button_border};
-    border-radius: 3px;
-    width: 14px;
-    height: 14px;
+    border: {style.border_width}px solid {self.button_border};
+    border-radius: {style.small_radius}px;
+    width: {style.checkbox_size}px;
+    height: {style.checkbox_size}px;
 }}
 QCheckBox::indicator:checked {{
     background-color: {self.accent};
@@ -221,17 +328,21 @@ QMenuBar::item:selected, QMenu::item:selected {{
     background-color: {menu_selected};
     color: {self.text};
 }}
+QMenu::item {{
+    padding: {style.input_padding_y}px {style.padding_x}px;
+}}
 QToolTip {{
     background-color: {self.panel_bg};
     color: {self.text};
-    border: 1px solid {self.button_border};
-    padding: 4px;
+    border: {style.border_width}px solid {self.button_border};
+    border-radius: {style.small_radius}px;
+    padding: {style.input_padding_y}px {style.input_padding_x}px;
 }}
 #noticeLabel {{
     background-color: {notice_bg};
-    border: 1px solid {notice_border};
-    border-radius: 4px;
-    padding: 6px 10px;
+    border: {style.border_width}px solid {notice_border};
+    border-radius: {style.small_radius}px;
+    padding: {style.padding_y}px {style.padding_x}px;
     color: {self.text};
 }}
 #statusTitle {{
@@ -243,14 +354,14 @@ QToolTip {{
 #statusText {{
     color: {self.text};
     background-color: {self.base_bg};
-    border: 1px solid {self.button_border};
+    border: {style.border_width}px solid {self.button_border};
 }}
 #zoomOverlay QPushButton {{
     background-color: {self.panel_bg};
     color: {self.button_text};
-    border: 1px solid {self.button_border};
-    border-radius: 4px;
-    padding: 3px 6px;
+    border: {style.border_width}px solid {self.button_border};
+    border-radius: {style.small_radius}px;
+    padding: {max(1, style.input_padding_y - 1)}px {style.input_padding_x}px;
 }}
 #zoomOverlay QPushButton:hover {{
     background-color: {zoom_hover};
@@ -258,6 +369,47 @@ QToolTip {{
 }}
 #zoomOverlay QPushButton:pressed {{
     background-color: {zoom_pressed};
+}}
+QScrollBar:vertical {{
+    background: {scrollbar_bg};
+    width: {style.scrollbar_width}px;
+    margin: 0;
+}}
+QScrollBar::handle:vertical {{
+    background: {scrollbar_handle};
+    min-height: {style.scrollbar_width * 2}px;
+    border-radius: {max(0, style.scrollbar_width // 2)}px;
+}}
+QScrollBar::handle:vertical:hover {{
+    background: {scrollbar_handle_hover};
+}}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+    height: 0;
+}}
+QScrollBar:horizontal {{
+    background: {scrollbar_bg};
+    height: {style.scrollbar_width}px;
+    margin: 0;
+}}
+QScrollBar::handle:horizontal {{
+    background: {scrollbar_handle};
+    min-width: {style.scrollbar_width * 2}px;
+    border-radius: {max(0, style.scrollbar_width // 2)}px;
+}}
+QScrollBar::handle:horizontal:hover {{
+    background: {scrollbar_handle_hover};
+}}
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
+    width: 0;
+}}
+QSplitter::handle {{
+    background-color: {self.button_border};
+}}
+QSplitter::handle:horizontal {{
+    width: {style.splitter_handle_width}px;
+}}
+QSplitter::handle:vertical {{
+    height: {style.splitter_handle_width}px;
 }}
 """
 
@@ -349,9 +501,9 @@ def _build_themes() -> dict[str, Theme]:
             glow_enabled=True,
             node_styles={
                 "default": NodeStyle(fill="#1e1e30", ring="#5c5c7a", ring_width=2, text="#e8e8f0"),
-                "frontier": NodeStyle(fill="#123a44", ring="#00e5ff", ring_width=2, text="#ffffff", glow="#5000e5ff"),
+                "frontier": NodeStyle(fill="#123a44", ring="#19bfe3", ring_width=2, text="#ffffff", glow="#4019bfe3"),
                 "current": NodeStyle(fill="#00e5ff", ring="#ffffff", ring_width=3, text="#001018", glow="#a000e5ff"),
-                "visited": NodeStyle(fill="#0d6d86", ring="#00e5ff", ring_width=3, text="#eaffff", glow="#6000e5ff"),
+                "visited": NodeStyle(fill="#12333f", ring="#4f8796", ring_width=2.5, text="#cde7ee", glow="#304f8796"),
                 "final": NodeStyle(fill="#0a4a5c", ring="#00ffff", ring_width=3, text="#e6ffff", glow="#8000ffff"),
                 "not_in_path": NodeStyle(fill="#111923", ring="#46505f", ring_width=2, text="#a5afbd", opacity=0.72),
                 "unreachable": NodeStyle(fill="#3a1020", ring="#ff2d55", ring_width=2.5, text="#ffb3c2", glow="#40ff2d55"),
@@ -400,7 +552,7 @@ def _build_themes() -> dict[str, Theme]:
                 "default": NodeStyle(fill="#1e293b", ring="#475569", ring_width=2, text="#e2e8f0"),
                 "frontier": NodeStyle(fill="#172554", ring="#60a5fa", ring_width=2, text="#dbeafe"),
                 "current": NodeStyle(fill="#3b82f6", ring="#dbeafe", ring_width=3, text="#0b1120"),
-                "visited": NodeStyle(fill="#1e3a8a", ring="#3b82f6", ring_width=2.5, text="#dbeafe"),
+                "visited": NodeStyle(fill="#1b2a3a", ring="#64748b", ring_width=2.5, text="#cbd5e1"),
                 "final": NodeStyle(fill="#123a44", ring="#38d5ff", ring_width=3, text="#eafcff", glow="#5538d5ff"),
                 "not_in_path": NodeStyle(fill="#18212f", ring="#4b5565", ring_width=2, text="#a8b3c2", opacity=0.55),
                 "unreachable": NodeStyle(fill="#450a0a", ring="#f87171", ring_width=2, text="#fecaca"),
@@ -447,7 +599,7 @@ def _build_themes() -> dict[str, Theme]:
                 "default": NodeStyle(fill="#ffffff", ring="#a1a1aa", ring_width=2, text="#18181b"),
                 "frontier": NodeStyle(fill="#eaf5fc", ring="#56B4E9", ring_width=2, text="#0c4a6e"),
                 "current": NodeStyle(fill="#0072B2", ring="#18181b", ring_width=3, text="#ffffff"),
-                "visited": NodeStyle(fill="#d0e6f2", ring="#0072B2", ring_width=2.5, text="#093a5c"),
+                "visited": NodeStyle(fill="#eef3f6", ring="#7a8b96", ring_width=2.5, text="#334155"),
                 "final": NodeStyle(fill="#dff4ff", ring="#0072B2", ring_width=3, text="#07344d"),
                 "not_in_path": NodeStyle(fill="#f3f4f6", ring="#9ca3af", ring_width=2, text="#4b5563", opacity=0.55),
                 "unreachable": NodeStyle(fill="#fbe3d6", ring="#D55E00", ring_width=2, text="#7c2d12"),
@@ -647,6 +799,7 @@ def theme_to_dict(theme: Theme) -> dict:
         "node_styles": {state: asdict(style) for state, style in theme.node_styles.items()},
         "edge_styles": {state: asdict(style) for state, style in theme.edge_styles.items()},
         "animation": asdict(theme.animation),
+        "app_style": asdict(theme.app_style),
     }
 
 
@@ -669,6 +822,11 @@ def _pick_num(data: dict, key: str, default: float) -> float:
         if not isinstance(value, bool) and isinstance(value, (int, float)):
             return value
     return default
+
+
+def _pick_int_clamped(data: dict, key: str, default: int, low: int, high: int) -> int:
+    value = _pick_num(data, key, default)
+    return int(max(low, min(high, round(float(value)))))
 
 
 def _pick_nullable_str(data: dict, key: str, default):
@@ -755,6 +913,30 @@ def theme_from_dict(data) -> Theme:
         impact_badge=_pick_bool(animation_data, "impact_badge", default.animation.impact_badge),
         final_reveal=_pick_choice(animation_data, "final_reveal", default.animation.final_reveal, FINAL_REVEALS),
         motion_scale=motion_scale,
+        travel_color=_pick_nullable_str(animation_data, "travel_color", default.animation.travel_color),
+        impact_color=_pick_nullable_str(animation_data, "impact_color", default.animation.impact_color),
+        badge_flash_color=_pick_nullable_str(
+            animation_data, "badge_flash_color", default.animation.badge_flash_color
+        ),
+    )
+
+    app_style_data = data.get("app_style")
+    if not isinstance(app_style_data, dict):
+        app_style_data = {}
+    app_style = AppStyle(
+        border_radius=_pick_int_clamped(app_style_data, "border_radius", default.app_style.border_radius, 0, 32),
+        small_radius=_pick_int_clamped(app_style_data, "small_radius", default.app_style.small_radius, 0, 24),
+        border_width=_pick_int_clamped(app_style_data, "border_width", default.app_style.border_width, 0, 6),
+        padding_y=_pick_int_clamped(app_style_data, "padding_y", default.app_style.padding_y, 0, 24),
+        padding_x=_pick_int_clamped(app_style_data, "padding_x", default.app_style.padding_x, 0, 32),
+        input_padding_y=_pick_int_clamped(app_style_data, "input_padding_y", default.app_style.input_padding_y, 0, 24),
+        input_padding_x=_pick_int_clamped(app_style_data, "input_padding_x", default.app_style.input_padding_x, 0, 32),
+        control_min_height=_pick_int_clamped(app_style_data, "control_min_height", default.app_style.control_min_height, 18, 80),
+        checkbox_size=_pick_int_clamped(app_style_data, "checkbox_size", default.app_style.checkbox_size, 8, 32),
+        slider_groove_height=_pick_int_clamped(app_style_data, "slider_groove_height", default.app_style.slider_groove_height, 1, 24),
+        slider_handle_size=_pick_int_clamped(app_style_data, "slider_handle_size", default.app_style.slider_handle_size, 6, 40),
+        scrollbar_width=_pick_int_clamped(app_style_data, "scrollbar_width", default.app_style.scrollbar_width, 4, 32),
+        splitter_handle_width=_pick_int_clamped(app_style_data, "splitter_handle_width", default.app_style.splitter_handle_width, 1, 24),
     )
 
     font_raw = data.get("font_pref")
@@ -773,6 +955,7 @@ def theme_from_dict(data) -> Theme:
         node_styles=node_styles,
         edge_styles=edge_styles,
         animation=animation,
+        app_style=app_style,
         **chrome,
     )
 

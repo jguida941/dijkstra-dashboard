@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from dijkstra_dashboard.ui.main_window import MainWindow
@@ -6,6 +8,7 @@ from dijkstra_dashboard.ui.theme import (
     ThemeManager,
     custom_theme_dir,
     get_theme_manager,
+    theme_to_dict,
 )
 from dijkstra_dashboard.ui.theme_editor import ThemeEditorDialog
 
@@ -76,12 +79,59 @@ def test_animation_edit_plus_flush_reflects_in_live_preview(qapp):
         dialog._set_value(("animation", "relax_effect"), "comet")
         dialog._set_value(("animation", "final_reveal"), "instant")
         dialog._set_value(("animation", "impact_ring"), False)
+        dialog._set_value(("animation", "travel_color"), "#ffaa00")
+        dialog._set_value(("animation", "impact_color"), "#ff5500")
         dialog._flush_preview()
 
         assert manager.current.id == PREVIEW_THEME_ID
         assert manager.current.animation.relax_effect == "comet"
         assert manager.current.animation.final_reveal == "instant"
         assert manager.current.animation.impact_ring is False
+        assert manager.current.animation.travel_color == "#ffaa00"
+        assert manager.current.animation.impact_color == "#ff5500"
+    finally:
+        dialog.reject()
+
+
+@pytest.mark.ui
+def test_app_style_edit_plus_flush_reflects_in_live_preview_and_qss(qapp):
+    manager = get_theme_manager()
+    manager.set_theme("neon-dark", persist=False)
+
+    dialog = ThemeEditorDialog()
+    try:
+        dialog._set_value(("app_style", "border_radius"), 14)
+        dialog._set_value(("app_style", "scrollbar_width"), 18)
+        dialog._flush_preview()
+
+        assert manager.current.id == PREVIEW_THEME_ID
+        assert manager.current.app_style.border_radius == 14
+        assert manager.current.app_style.scrollbar_width == 18
+        assert "border-radius: 14px" in manager.current.qss()
+        assert "width: 18px" in manager.current.qss()
+    finally:
+        dialog.reject()
+
+
+@pytest.mark.ui
+def test_pasted_json_import_updates_working_theme_and_export_preview(qapp):
+    manager = get_theme_manager()
+    manager.set_theme("midnight", persist=False)
+    data = theme_to_dict(manager.current)
+    data["id"] = "pasted"
+    data["name"] = "Pasted"
+    data["accent"] = "#123456"
+    data["app_style"]["border_radius"] = 11
+
+    dialog = ThemeEditorDialog()
+    try:
+        dialog._json_paste.setPlainText(json.dumps(data))
+        assert dialog._apply_pasted_json() is True
+
+        assert dialog._name_edit.text() == "Pasted"
+        assert dialog._working["accent"] == "#123456"
+        assert dialog._working["app_style"]["border_radius"] == 11
+        assert "border-radius: 11px" in dialog._qss_preview.toPlainText()
     finally:
         dialog.reject()
 

@@ -1,7 +1,7 @@
 from PyQt6 import sip
 from PyQt6.QtWidgets import QGraphicsView, QGraphicsScene, QPushButton, QHBoxLayout, QWidget, QInputDialog, QGraphicsSimpleTextItem, QSizePolicy
 from PyQt6.QtCore import Qt, QPointF, QTimer, pyqtSignal
-from PyQt6.QtGui import QBrush, QColor, QLinearGradient, QResizeEvent
+from PyQt6.QtGui import QBrush, QColor, QLinearGradient, QPen, QResizeEvent
 from .graph_node import GraphNode
 from .graph_edge import GraphEdge, WeightChip
 from .animations import AnimationCoordinator
@@ -11,6 +11,7 @@ from dijkstra_dashboard.core.graph import Graph
 import math
 
 INF = float("inf")
+IMPACT_FLASH_START = 0.84
 
 
 def format_distance(value):
@@ -60,6 +61,9 @@ class GraphView(QGraphicsView):
         self.zoom_level = 1.0
         self.zoom_step = 0.2  # 20% zoom step
         self._label_scale = 1.0
+        self._snap_to_grid = False
+        self._grid_size = 40.0
+        self._snapping_node = False
 
         # Create zoom controls
         self.create_zoom_controls()
@@ -138,6 +142,26 @@ class GraphView(QGraphicsView):
         gradient.setColorAt(1, QColor(theme.canvas_bg_bottom))
         self.setBackgroundBrush(QBrush(gradient))
 
+    def drawBackground(self, painter, rect):
+        super().drawBackground(painter, rect)
+        if not self._snap_to_grid:
+            return
+        grid = max(5.0, float(self._grid_size))
+        theme = current_theme()
+        color = QColor(theme.button_border)
+        color.setAlpha(90 if theme.dark else 120)
+        painter.setPen(QPen(color, 1.0))
+        left = math.floor(rect.left() / grid) * grid
+        top = math.floor(rect.top() / grid) * grid
+        x = left
+        while x <= rect.right():
+            painter.drawLine(QPointF(x, rect.top()), QPointF(x, rect.bottom()))
+            x += grid
+        y = top
+        while y <= rect.bottom():
+            painter.drawLine(QPointF(rect.left(), y), QPointF(rect.right(), y))
+            y += grid
+
     def _on_theme_changed(self, theme):
         # Cancel -> snap every in-flight tween before restyling, then refresh.
         self.animator.cancel_all()
@@ -197,6 +221,25 @@ class GraphView(QGraphicsView):
 
     def set_tween_interval(self, ms):
         self.animator.set_interval(ms)
+
+    def set_snap_to_grid(self, enabled):
+        self._snap_to_grid = bool(enabled)
+        self.viewport().update()
+
+    def snap_to_grid(self):
+        return self._snap_to_grid
+
+    def set_grid_size(self, size):
+        self._grid_size = max(5.0, float(size))
+        if self._snap_to_grid:
+            self.viewport().update()
+
+    def grid_size(self):
+        return self._grid_size
+
+    def _snap_point(self, point):
+        grid = max(5.0, float(self._grid_size))
+        return QPointF(round(point.x() / grid) * grid, round(point.y() / grid) * grid)
 
     def _anchor_zoom_overlay(self):
         overlay = getattr(self, "zoom_controls_widget", None)
@@ -568,6 +611,15 @@ class GraphView(QGraphicsView):
 
     def _on_node_moved(self, node_item, new_pos):
         node_id = node_item.node_id
+        if self._snap_to_grid and not self._snapping_node:
+            snapped = self._snap_point(new_pos)
+            if snapped != new_pos:
+                self._snapping_node = True
+                try:
+                    node_item.setPos(snapped)
+                finally:
+                    self._snapping_node = False
+                new_pos = snapped
         if self.graph:
             self.graph.set_node_position(node_id, new_pos.x(), new_pos.y())
         for edge in self.edges.values():
@@ -832,47 +884,80 @@ class GraphView(QGraphicsView):
                     theme = current_theme()
                     animation = theme.animation
                     duration = self.animator.scaled(round(340 / animation.motion_scale))
+                    travel_color = (
+                        animation.travel_color
+                        or (
+                            theme.warning
+                            if animation.relax_effect == "lightning"
+                            else theme.edge_style("relaxed").stroke
+                        )
+                    )
+                    impact_color = animation.impact_color or travel_color
+                    badge_flash_color = animation.badge_flash_color or impact_color
                     if animation.relax_effect == "lightning":
-                        # A warning-orange lightning bolt shoots source->target;
-                        # contrast against the path color makes direction clear.
                         self.animator.lightning(
-                            self.scene, item.curve_path(), theme.warning, duration
+                            self.scene, item.curve_path(), travel_color, duration
                         )
                     elif animation.relax_effect == "comet":
                         self.animator.travel_dot(
-                            self.scene, item.curve_path(),
-                            theme.edge_style("relaxed").stroke, duration
+                            self.scene, item.curve_path(), travel_color, duration
                         )
-                    # The weight number flashes the bolt color while it passes.
+                    # The weight number flashes the travel/impact color while it passes.
                     chip = item.label
-                    warning = theme.warning
+                    flash_color = badge_flash_color
 
-                    def flash(progress, chip=chip, warning=warning):
+                    def flash(progress, chip=chip, flash_color=flash_color):
                         if sip.isdeleted(chip):
                             return
-                        chip.set_flash(None if progress >= 1.0 else warning)
+                        chip.set_flash(None if progress >= 1.0 else flash_color)
 
                     self.animator.animate_color(("chip-flash", id(item)), duration, flash)
-                    # Pop the destination so the receiving node reads instantly.
+                    # Pop/flash the destination only near impact, when the
+                    # travel animation visually reaches the receiving node.
                     target_item = self.nodes.get(step.get("node"))
                     if target_item is not None:
-                        self.animator.pop_scale(
-                            target_item,
-                            self.animator.scaled(round(220 / animation.motion_scale)),
+                        def impact_pop(progress, node=target_item):
+                            if sip.isdeleted(node):
+                                return
+                            if progress < IMPACT_FLASH_START:
+                                node.setScale(1.0)
+                                return
+                            local = (progress - IMPACT_FLASH_START) / (1.0 - IMPACT_FLASH_START)
+                            if local <= 0.5:
+                                node.setScale(1.0 + 0.12 * (local / 0.5))
+                            else:
+                                node.setScale(1.12 - 0.12 * ((local - 0.5) / 0.5))
+
+                        self.animator.animate_color(
+                            ("node-impact-pop", id(target_item)),
+                            duration,
+                            impact_pop,
                         )
                         if animation.impact_ring:
-                            # The bolt color briefly takes over the destination
-                            # ring at impact; permanent state color remains
-                            # cyan/gray after the animation finalizes.
-                            def flash_ring(progress, node=target_item, warning=warning):
+                            def flash_ring(progress, node=target_item, impact_color=impact_color):
                                 if sip.isdeleted(node):
                                     return
-                                node.set_ring_flash(warning if 0.62 <= progress < 1.0 else None)
+                                node.set_ring_flash(
+                                    impact_color if IMPACT_FLASH_START <= progress < 1.0 else None
+                                )
 
                             self.animator.animate_color(
                                 ("node-ring-flash", id(target_item)),
                                 duration,
                                 flash_ring,
+                            )
+                        if animation.impact_badge:
+                            def flash_badge(progress, node=target_item, flash_color=badge_flash_color):
+                                if sip.isdeleted(node):
+                                    return
+                                node.set_badge_flash(
+                                    flash_color if IMPACT_FLASH_START <= progress < 1.0 else None
+                                )
+
+                            self.animator.animate_color(
+                                ("node-badge-flash", id(target_item)),
+                                duration,
+                                flash_badge,
                             )
 
     def _render_final_staggered(self, frame):
@@ -920,16 +1005,6 @@ class GraphView(QGraphicsView):
 
     def _render_nodes(self, frame):
         visited = set(frame.visited)
-        step = frame.step
-        emphasize_node = None
-        if (
-            current_theme().animation.impact_badge
-            and frame.forward_step
-            and step is not None
-            and step.get("kind") == "relax"
-        ):
-            emphasize_node = step.get("node")
-
         for node_id, node_item in self.nodes.items():
             distance = frame.distances.get(node_id, INF)
             if frame.is_final and frame.path and node_id in frame.path:
@@ -950,7 +1025,7 @@ class GraphView(QGraphicsView):
                 state = "default"
             node_item.set_state(state)
             node_item.set_distance_text(format_distance(distance))
-            node_item.set_badge_emphasis(node_id == emphasize_node)
+            node_item.set_badge_emphasis(False)
 
     def _render_edges(self, frame):
         # F1/F2: resolve ORIENTED event tuples to edge ITEMS, then rank by item

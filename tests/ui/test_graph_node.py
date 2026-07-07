@@ -98,3 +98,16 @@ def test_ring_flash_temporarily_overrides_and_restores_state_ring(qapp):
 
     node.set_ring_flash(None)
     assert node.pen().color() == state_ring
+
+
+@pytest.mark.ui
+def test_badge_flash_temporarily_overrides_and_restores_muted_color(qapp):
+    node = GraphNode("A")
+    node.set_distance_text("3")
+    muted = QColor(current_theme().muted_text)
+
+    node.set_badge_flash("#ffb020")
+    assert node.badge.brush().color() == QColor("#ffb020")
+
+    node.set_badge_flash(None)
+    assert node.badge.brush().color() == muted
