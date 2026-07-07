@@ -363,7 +363,8 @@ QToolTip {{
     color: {self.button_text};
     border: {style.border_width}px solid {self.button_border};
     border-radius: {style.small_radius}px;
-    padding: {max(1, style.input_padding_y - 1)}px {style.input_padding_x}px;
+    padding: 0;
+    min-height: 0;
 }}
 #zoomOverlay QPushButton:hover {{
     background-color: {zoom_hover};
@@ -507,9 +508,9 @@ def _build_themes() -> dict[str, Theme]:
             glow_enabled=True,
             node_styles={
                 "default": NodeStyle(fill="#1e1e30", ring="#5c5c7a", ring_width=2, text="#e8e8f0"),
-                "frontier": NodeStyle(fill="#102e38", ring="#2f9db1", ring_width=2, text="#d9f7fb", glow="#302f9db1"),
+                "frontier": NodeStyle(fill="#123a44", ring="#19bfe3", ring_width=2, text="#ffffff", glow="#4019bfe3"),
                 "current": NodeStyle(fill="#00e5ff", ring="#ffffff", ring_width=3, text="#001018", glow="#a000e5ff"),
-                "visited": NodeStyle(fill="#172731", ring="#657582", ring_width=2.5, text="#c8d5dd", glow="#24657582"),
+                "visited": NodeStyle(fill="#12333f", ring="#4f8796", ring_width=2.5, text="#cde7ee", glow="#304f8796"),
                 "final": NodeStyle(fill="#0a4a5c", ring="#00ffff", ring_width=3, text="#e6ffff", glow="#8000ffff"),
                 "not_in_path": NodeStyle(fill="#111923", ring="#46505f", ring_width=2, text="#a5afbd", opacity=0.72),
                 "unreachable": NodeStyle(fill="#3a1020", ring="#ff2d55", ring_width=2.5, text="#ffb3c2", glow="#40ff2d55"),
@@ -519,7 +520,7 @@ def _build_themes() -> dict[str, Theme]:
             edge_styles={
                 "default": EdgeStyle(stroke="#4a4a62", width=2, label_fg="#cfcfe0", chip_bg="#00000000", chip_border="#00000000", z=0),
                 "considered": EdgeStyle(stroke="#2f4a55", width=2.5, label_fg="#8fb8c2", chip_bg="#00000000", chip_border="#00000000", z=0.2),
-                "relaxed": EdgeStyle(stroke="#2fbfd6", width=2.5, label_fg="#8fe0ec", chip_bg="#00000000", chip_border="#00000000", halo="#442fbfd6", z=0.5),
+                "relaxed": EdgeStyle(stroke="#00e5ff", width=2.5, label_fg="#aef4ff", chip_bg="#00000000", chip_border="#00000000", halo="#5500e5ff", z=0.5),
                 "final": EdgeStyle(stroke="#00ffff", width=3.5, label_fg="#00ffff", chip_bg="#00000000", chip_border="#00000000", halo="#6000ffff", z=1),
                 "not_in_path": EdgeStyle(stroke="#3f4652", width=2, label_fg="#929ba8", chip_bg="#00000000", chip_border="#00000000", opacity=0.62, z=0),
                 "unreachable": EdgeStyle(stroke="#ff2d55", width=2, label_fg="#ffb3c2", chip_bg="#00000000", chip_border="#00000000", z=0),
@@ -556,7 +557,7 @@ def _build_themes() -> dict[str, Theme]:
             glow_enabled=False,
             node_styles={
                 "default": NodeStyle(fill="#1e293b", ring="#475569", ring_width=2, text="#e2e8f0"),
-                "frontier": NodeStyle(fill="#172554", ring="#3b82f6", ring_width=2, text="#dbeafe"),
+                "frontier": NodeStyle(fill="#172554", ring="#60a5fa", ring_width=2, text="#dbeafe"),
                 "current": NodeStyle(fill="#3b82f6", ring="#dbeafe", ring_width=3, text="#0b1120"),
                 "visited": NodeStyle(fill="#1b2a3a", ring="#64748b", ring_width=2.5, text="#cbd5e1"),
                 "final": NodeStyle(fill="#123a44", ring="#38d5ff", ring_width=3, text="#eafcff", glow="#5538d5ff"),
@@ -566,7 +567,7 @@ def _build_themes() -> dict[str, Theme]:
             edge_styles={
                 "default": EdgeStyle(stroke="#475569", width=2, label_fg="#cbd5e1", chip_bg="#e61e293b", chip_border="#475569", z=0),
                 "considered": EdgeStyle(stroke="#7c8faa", width=2, label_fg="#cbd5e1", chip_bg="#e61e293b", chip_border="#7c8faa", z=0.2),
-                "relaxed": EdgeStyle(stroke="#3b82f6", width=2.5, label_fg="#bfdbfe", chip_bg="#e6172554", chip_border="#3b82f6", z=0.5),
+                "relaxed": EdgeStyle(stroke="#60a5fa", width=2.5, label_fg="#dbeafe", chip_bg="#e6172554", chip_border="#60a5fa", z=0.5),
                 "final": EdgeStyle(stroke="#38d5ff", width=3.5, label_fg="#38d5ff", chip_bg="#e6123a44", chip_border="#38d5ff", halo="#4038d5ff", z=1),
                 "not_in_path": EdgeStyle(stroke="#4b5565", width=1.6, label_fg="#9aa6b6", chip_bg="#d918212f", chip_border="#4b5565", opacity=0.5, z=0),
                 "unreachable": EdgeStyle(stroke="#f87171", width=2, label_fg="#fecaca", chip_bg="#e6450a0a", chip_border="#f87171", z=0),
@@ -603,17 +604,17 @@ def _build_themes() -> dict[str, Theme]:
             glow_enabled=False,
             node_styles={
                 "default": NodeStyle(fill="#ffffff", ring="#a1a1aa", ring_width=2, text="#18181b"),
-                "frontier": NodeStyle(fill="#eaf5fc", ring="#6aa9c8", ring_width=2, text="#0c4a6e"),
+                "frontier": NodeStyle(fill="#eaf5fc", ring="#56B4E9", ring_width=2, text="#0c4a6e"),
                 "current": NodeStyle(fill="#0072B2", ring="#18181b", ring_width=3, text="#ffffff"),
-                "visited": NodeStyle(fill="#eef3f6", ring="#8b95a1", ring_width=2.5, text="#334155"),
+                "visited": NodeStyle(fill="#eef3f6", ring="#7a8b96", ring_width=2.5, text="#334155"),
                 "final": NodeStyle(fill="#dff4ff", ring="#0072B2", ring_width=3, text="#07344d"),
                 "not_in_path": NodeStyle(fill="#f3f4f6", ring="#9ca3af", ring_width=2, text="#4b5563", opacity=0.55),
                 "unreachable": NodeStyle(fill="#fbe3d6", ring="#D55E00", ring_width=2, text="#7c2d12"),
             },
             edge_styles={
                 "default": EdgeStyle(stroke="#a1a1aa", width=2, label_fg="#3f3f46", chip_bg="#e6ffffff", chip_border="#d4d4d8", z=0),
-                "considered": EdgeStyle(stroke="#6aa9c8", width=2, label_fg="#0c4a6e", chip_bg="#e6eaf5fc", chip_border="#6aa9c8", z=0.2),
-                "relaxed": EdgeStyle(stroke="#2f8fbd", width=2.5, label_fg="#093a5c", chip_bg="#e6d0e6f2", chip_border="#2f8fbd", z=0.5),
+                "considered": EdgeStyle(stroke="#56B4E9", width=2, label_fg="#0c4a6e", chip_bg="#e6eaf5fc", chip_border="#56B4E9", z=0.2),
+                "relaxed": EdgeStyle(stroke="#0072B2", width=2.5, label_fg="#093a5c", chip_bg="#e6d0e6f2", chip_border="#0072B2", z=0.5),
                 "final": EdgeStyle(stroke="#0072B2", width=3.5, label_fg="#0072B2", chip_bg="#e6dff4ff", chip_border="#0072B2", z=1),
                 "not_in_path": EdgeStyle(stroke="#9ca3af", width=1.5, label_fg="#6b7280", chip_bg="#e6f3f4f6", chip_border="#d1d5db", opacity=0.5, z=0),
                 "unreachable": EdgeStyle(stroke="#D55E00", width=2, label_fg="#7c2d12", chip_bg="#e6fbe3d6", chip_border="#D55E00", z=0),

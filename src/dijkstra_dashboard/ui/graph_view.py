@@ -14,6 +14,11 @@ INF = float("inf")
 IMPACT_FLASH_START = 0.84
 FIT_MARGIN = 36.0
 ZOOM_OVERLAY_MARGIN = 36
+ZOOM_OVERLAY_PADDING = 4
+ZOOM_OVERLAY_GAP = 5
+ZOOM_BUTTON_WIDTH = 30
+ZOOM_BUTTON_HEIGHT = 30
+ZOOM_RESET_WIDTH = 50
 
 
 def format_distance(value):
@@ -114,24 +119,37 @@ class GraphView(QGraphicsView):
         # Create a container widget for zoom controls
         controls_widget = QWidget()
         controls_widget.setObjectName("zoomOverlay")
-        controls_widget.setFixedSize(120, 30)
+        overlay_width = (
+            ZOOM_OVERLAY_PADDING * 2
+            + ZOOM_BUTTON_WIDTH * 2
+            + ZOOM_RESET_WIDTH
+            + ZOOM_OVERLAY_GAP * 2
+        )
+        overlay_height = ZOOM_OVERLAY_PADDING * 2 + ZOOM_BUTTON_HEIGHT
+        controls_widget.setFixedSize(overlay_width, overlay_height)
 
         # Zoom out button
         zoom_out_btn = QPushButton("-", controls_widget)
-        zoom_out_btn.setFixedSize(30, 30)
-        zoom_out_btn.move(0, 0)
+        zoom_out_btn.setFixedSize(ZOOM_BUTTON_WIDTH, ZOOM_BUTTON_HEIGHT)
+        zoom_out_btn.move(ZOOM_OVERLAY_PADDING, ZOOM_OVERLAY_PADDING)
         zoom_out_btn.clicked.connect(self.zoom_out)
 
         # Zoom reset button
         zoom_reset_btn = QPushButton("100%", controls_widget)
-        zoom_reset_btn.setFixedSize(50, 30)
-        zoom_reset_btn.move(35, 0)
+        zoom_reset_btn.setFixedSize(ZOOM_RESET_WIDTH, ZOOM_BUTTON_HEIGHT)
+        zoom_reset_btn.move(
+            ZOOM_OVERLAY_PADDING + ZOOM_BUTTON_WIDTH + ZOOM_OVERLAY_GAP,
+            ZOOM_OVERLAY_PADDING,
+        )
         zoom_reset_btn.clicked.connect(self.reset_zoom)
 
         # Zoom in button
         zoom_in_btn = QPushButton("+", controls_widget)
-        zoom_in_btn.setFixedSize(30, 30)
-        zoom_in_btn.move(90, 0)
+        zoom_in_btn.setFixedSize(ZOOM_BUTTON_WIDTH, ZOOM_BUTTON_HEIGHT)
+        zoom_in_btn.move(
+            ZOOM_OVERLAY_PADDING + ZOOM_BUTTON_WIDTH + ZOOM_OVERLAY_GAP + ZOOM_RESET_WIDTH + ZOOM_OVERLAY_GAP,
+            ZOOM_OVERLAY_PADDING,
+        )
         zoom_in_btn.clicked.connect(self.zoom_in)
 
         # Add controls to the viewport so the overlay clears the visible canvas

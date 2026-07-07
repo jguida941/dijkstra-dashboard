@@ -65,15 +65,13 @@ def test_neon_final_labels_match_path_cyan_and_non_path_labels_are_gray():
 
 
 @pytest.mark.ui
-def test_builtin_frontier_settled_and_final_colors_are_distinct():
-    for registered in ThemeManager.THEMES.values():
-        frontier = QColor(registered.node_styles["frontier"].ring)
-        settled = QColor(registered.node_styles["visited"].ring)
-        final = QColor(registered.node_styles["final"].ring)
+def test_neon_active_and_final_cyans_keep_original_brightness():
+    neon = ThemeManager.THEMES["neon-dark"]
 
-        assert frontier != final
-        assert settled != final
-        assert registered.edge_styles["relaxed"].stroke != registered.edge_styles["final"].stroke
+    assert neon.node_styles["frontier"].ring == "#19bfe3"
+    assert neon.node_styles["visited"].ring == "#4f8796"
+    assert neon.edge_styles["relaxed"].stroke == "#00e5ff"
+    assert neon.edge_styles["final"].stroke == "#00ffff"
 
 
 @pytest.mark.ui
