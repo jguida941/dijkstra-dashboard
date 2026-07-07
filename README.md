@@ -72,8 +72,8 @@ read.
 - **Paper Light** uses the **Okabe-Ito** colorblind-safe palette.
 - **Theme Studio**: open View -> Edit Theme... to tune canvas colors, node states, edge states, Qt borders,
   radii, padding, sliders, scrollbars, splitter handles, and animation colors.
-- **Custom themes**: save edited themes, import/export theme JSON, paste JSON, copy JSON, copy generated
-  QSS, and delete saved custom themes from View -> Delete Custom Theme... or inside the editor.
+- **Custom themes**: save edited themes, import/export theme JSON, paste JSON, import/paste Qt stylesheet
+  QSS, copy generated QSS, and delete saved custom themes from View -> Delete Custom Theme... or inside the editor.
 - **Animation controls**: choose the relax effect, final reveal style, motion scale, travel color, impact
   color, badge flash color, and whether node rings or badges flash when an animation hits.
 

@@ -46,6 +46,7 @@ from .theme import (
     RELAX_EFFECTS,
     current_theme,
     get_theme_manager,
+    parse_qss_theme_overrides,
     theme_from_dict,
     theme_to_dict,
 )
@@ -207,6 +208,7 @@ class ThemeEditorDialog(QDialog):
         self._none_checks: dict[tuple, QCheckBox] = {}
         self._glow_enabled_check: QCheckBox | None = None
         self._json_paste: QPlainTextEdit | None = None
+        self._qss_paste: QPlainTextEdit | None = None
         self._qss_preview: QPlainTextEdit | None = None
 
         self._preview_timer = QTimer(self)
@@ -540,6 +542,9 @@ class ThemeEditorDialog(QDialog):
         import_button = QPushButton("Import JSON...")
         import_button.clicked.connect(self._import_json_file)
         file_layout.addWidget(import_button)
+        import_qss_button = QPushButton("Import QSS...")
+        import_qss_button.clicked.connect(self._import_qss_file)
+        file_layout.addWidget(import_qss_button)
         export_json_button = QPushButton("Export JSON...")
         export_json_button.clicked.connect(self._export_json_file)
         file_layout.addWidget(export_json_button)
@@ -573,6 +578,28 @@ class ThemeEditorDialog(QDialog):
         paste_buttons.addStretch(1)
         paste_layout.addLayout(paste_buttons)
         layout.addWidget(paste_group, stretch=1)
+
+        qss_paste_group = QGroupBox("Paste Qt stylesheet")
+        qss_paste_layout = QVBoxLayout(qss_paste_group)
+        self._qss_paste = QPlainTextEdit()
+        self._qss_paste.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+        self._qss_paste.setPlaceholderText(
+            "Paste a Qt stylesheet (QSS) here. It will be saved with this theme and parsed into editable colors where possible."
+        )
+        qss_paste_layout.addWidget(self._qss_paste, stretch=1)
+        qss_paste_buttons = QHBoxLayout()
+        apply_qss_button = QPushButton("Import pasted QSS")
+        apply_qss_button.clicked.connect(self._apply_pasted_qss)
+        qss_paste_buttons.addWidget(apply_qss_button)
+        load_qss_button = QPushButton("Load generated QSS")
+        load_qss_button.clicked.connect(self._load_current_qss_into_paste)
+        qss_paste_buttons.addWidget(load_qss_button)
+        clear_qss_button = QPushButton("Clear custom QSS")
+        clear_qss_button.clicked.connect(self._clear_custom_qss)
+        qss_paste_buttons.addWidget(clear_qss_button)
+        qss_paste_buttons.addStretch(1)
+        qss_paste_layout.addLayout(qss_paste_buttons)
+        layout.addWidget(qss_paste_group, stretch=1)
 
         qss_group = QGroupBox("Generated QSS preview")
         qss_layout = QVBoxLayout(qss_group)
@@ -705,6 +732,10 @@ class ThemeEditorDialog(QDialog):
             self._glow_enabled_check.blockSignals(True)
             self._glow_enabled_check.setChecked(bool(self._get(("glow_enabled",))))
             self._glow_enabled_check.blockSignals(False)
+        if self._qss_paste is not None:
+            self._qss_paste.blockSignals(True)
+            self._qss_paste.setPlainText(self._working.get("custom_qss", ""))
+            self._qss_paste.blockSignals(False)
         self._refresh_export_views()
 
     def _select_category(self, name):
@@ -812,6 +843,21 @@ class ThemeEditorDialog(QDialog):
         except Exception as exc:
             self._show_error(f"Could not export QSS: {exc}")
 
+    def _import_qss_file(self):
+        filename, _ = QFileDialog.getOpenFileName(
+            self, "Import Qt Stylesheet", "", "Qt Stylesheets (*.qss);;All Files (*)"
+        )
+        if not filename:
+            return False
+        try:
+            text = Path(filename).read_text(encoding="utf-8")
+        except Exception as exc:
+            self._show_error(f"Could not read QSS: {exc}")
+            return False
+        if self._qss_paste is not None:
+            self._qss_paste.setPlainText(text)
+        return self._apply_pasted_qss()
+
     def _apply_pasted_json(self):
         if self._json_paste is None:
             return False
@@ -835,6 +881,44 @@ class ThemeEditorDialog(QDialog):
             self._show_error(str(exc))
             return
         self._json_paste.setPlainText(json.dumps(data, indent=2, ensure_ascii=True))
+
+    def _apply_pasted_qss(self):
+        if self._qss_paste is None:
+            return False
+        text = self._qss_paste.toPlainText().strip()
+        if not text:
+            self._show_error("Paste a Qt stylesheet first.")
+            return False
+        try:
+            overrides = parse_qss_theme_overrides(text)
+        except ValueError as exc:
+            self._show_error(f"Could not import pasted QSS: {exc}")
+            return False
+
+        for key, value in overrides.get("theme", {}).items():
+            self._working[key] = value
+        for key, value in overrides.get("app_style", {}).items():
+            self._working["app_style"][key] = value
+        self._refresh_all_widgets()
+        self._mark_dirty()
+        self._show_error("")
+        return True
+
+    def _load_current_qss_into_paste(self):
+        if self._qss_paste is None:
+            return
+        try:
+            self._qss_paste.setPlainText(self._save_ready_theme().qss())
+        except Exception as exc:
+            self._show_error(str(exc))
+
+    def _clear_custom_qss(self):
+        self._working["custom_qss"] = ""
+        if self._qss_paste is not None:
+            self._qss_paste.clear()
+        self._refresh_export_views()
+        self._mark_dirty()
+        self._show_error("")
 
     def _refresh_export_views(self):
         if self._qss_preview is None:

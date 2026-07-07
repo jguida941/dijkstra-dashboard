@@ -85,11 +85,12 @@ class MainWindow(QMainWindow):
         main_layout = QHBoxLayout(central_widget)
         main_layout.setContentsMargins(0, 0, 0, 0)
         self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
-        self.main_splitter.setChildrenCollapsible(False)
+        self.main_splitter.setChildrenCollapsible(True)
         main_layout.addWidget(self.main_splitter)
         
         # Left panel (graph and controls)
         left_panel = QWidget()
+        left_panel.setMinimumWidth(0)
         left_layout = QVBoxLayout(left_panel)
         left_layout.setContentsMargins(0, 0, 0, 0)
         self.graph_splitter = QSplitter(Qt.Orientation.Vertical)
@@ -110,10 +111,12 @@ class MainWindow(QMainWindow):
 
         # Right panel (status)
         right_panel = QWidget()
+        right_panel.setMinimumWidth(0)
         right_layout = QVBoxLayout(right_panel)
 
         # Create and add the educational inspector (distances + pseudocode + narration)
         self.inspector = InspectorPanel()
+        self.inspector.setMinimumWidth(0)
         right_layout.addWidget(self.inspector)
 
         # Create and add graph view
@@ -151,6 +154,8 @@ class MainWindow(QMainWindow):
         # Add panels to movable splitters.
         self.main_splitter.addWidget(left_panel)
         self.main_splitter.addWidget(right_panel)
+        self.main_splitter.setCollapsible(0, False)
+        self.main_splitter.setCollapsible(1, True)
         self.main_splitter.setStretchFactor(0, 2)
         self.main_splitter.setStretchFactor(1, 1)
         self.main_splitter.setSizes([760, 360])

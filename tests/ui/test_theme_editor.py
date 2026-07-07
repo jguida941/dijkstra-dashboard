@@ -10,6 +10,7 @@ from dijkstra_dashboard.ui.theme import (
     get_theme_manager,
     theme_to_dict,
 )
+import dijkstra_dashboard.ui.theme_editor as theme_editor_module
 from dijkstra_dashboard.ui.theme_editor import ThemeEditorDialog
 
 
@@ -132,6 +133,82 @@ def test_pasted_json_import_updates_working_theme_and_export_preview(qapp):
         assert dialog._working["accent"] == "#123456"
         assert dialog._working["app_style"]["border_radius"] == 11
         assert "border-radius: 11px" in dialog._qss_preview.toPlainText()
+    finally:
+        dialog.reject()
+
+
+@pytest.mark.ui
+def test_pasted_qss_import_updates_working_theme_and_export_preview(qapp):
+    manager = get_theme_manager()
+    manager.set_theme("neon-dark", persist=False)
+    qss = """
+    QMainWindow { background-color: #111111; color: #eeeeee; }
+    QPushButton {
+        background-color: #222222;
+        border: 2px solid #444444;
+        border-radius: 12px;
+        padding: 8px;
+    }
+    QLineEdit {
+        selection-background-color: #ff00aa;
+        selection-color: #000000;
+    }
+    """
+
+    dialog = ThemeEditorDialog()
+    try:
+        dialog._qss_paste.setPlainText(qss)
+        assert dialog._apply_pasted_qss() is True
+
+        assert dialog._working["custom_qss"] == qss.strip()
+        assert dialog._working["base_bg"] == "#111111"
+        assert dialog._working["button_bg"] == "#222222"
+        assert dialog._working["button_border"] == "#444444"
+        assert dialog._working["highlight"] == "#ff00aa"
+        assert dialog._working["app_style"]["border_radius"] == 12
+        assert "/* Custom QSS */" in dialog._qss_preview.toPlainText()
+        assert "QMainWindow { background-color: #111111; color: #eeeeee; }" in dialog._qss_preview.toPlainText()
+    finally:
+        dialog.reject()
+
+
+@pytest.mark.ui
+def test_clear_custom_qss_removes_saved_stylesheet_layer(qapp):
+    dialog = ThemeEditorDialog()
+    try:
+        dialog._working["custom_qss"] = "QLabel { color: #abcdef; }"
+        dialog._qss_paste.setPlainText(dialog._working["custom_qss"])
+
+        dialog._clear_custom_qss()
+
+        assert dialog._working["custom_qss"] == ""
+        assert dialog._qss_paste.toPlainText() == ""
+        assert "QLabel { color: #abcdef; }" not in dialog._qss_preview.toPlainText()
+    finally:
+        dialog.reject()
+
+
+@pytest.mark.ui
+def test_import_qss_file_parses_stylesheet(qapp, tmp_path, monkeypatch):
+    qss_path = tmp_path / "theme.qss"
+    qss_path.write_text(
+        "QPushButton { background-color: #222222; border: 3px solid #555555; }",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        theme_editor_module.QFileDialog,
+        "getOpenFileName",
+        lambda *args, **kwargs: (str(qss_path), ""),
+    )
+
+    dialog = ThemeEditorDialog()
+    try:
+        assert dialog._import_qss_file() is True
+
+        assert dialog._working["custom_qss"] == qss_path.read_text(encoding="utf-8")
+        assert dialog._working["base_bg"] == "#222222"
+        assert dialog._working["button_border"] == "#555555"
+        assert dialog._working["app_style"]["border_width"] == 3
     finally:
         dialog.reject()
 

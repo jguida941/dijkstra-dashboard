@@ -5,7 +5,15 @@ from PyQt6.QtGui import QColor, QFont, QPalette
 from PyQt6.QtTest import QSignalSpy
 
 import dijkstra_dashboard.ui.theme as theme
-from dijkstra_dashboard.ui.theme import EDGE_STATES, NODE_STATES, ThemeManager, lerp_color
+from dijkstra_dashboard.ui.theme import (
+    EDGE_STATES,
+    NODE_STATES,
+    ThemeManager,
+    lerp_color,
+    parse_qss_theme_overrides,
+    theme_from_dict,
+    theme_to_dict,
+)
 
 
 @pytest.mark.ui
@@ -57,10 +65,72 @@ def test_neon_final_labels_match_path_cyan_and_non_path_labels_are_gray():
 
 
 @pytest.mark.ui
+def test_builtin_frontier_settled_and_final_colors_are_distinct():
+    for registered in ThemeManager.THEMES.values():
+        frontier = QColor(registered.node_styles["frontier"].ring)
+        settled = QColor(registered.node_styles["visited"].ring)
+        final = QColor(registered.node_styles["final"].ring)
+
+        assert frontier != final
+        assert settled != final
+        assert registered.edge_styles["relaxed"].stroke != registered.edge_styles["final"].stroke
+
+
+@pytest.mark.ui
 def test_all_themes_use_final_label_as_the_route_color():
     for registered in ThemeManager.THEMES.values():
         assert registered.edge_styles["final"].label_fg == registered.edge_styles["final"].stroke
         assert registered.edge_styles["not_in_path"].opacity < registered.edge_styles["final"].opacity
+
+
+@pytest.mark.ui
+def test_custom_qss_round_trips_and_appends_to_stylesheet():
+    data = theme_to_dict(ThemeManager.THEMES["neon-dark"])
+    data["id"] = "qss-layer"
+    data["name"] = "QSS Layer"
+    data["custom_qss"] = "QLabel#special { color: #abcdef; }"
+
+    imported = theme_from_dict(data)
+
+    assert imported.custom_qss == "QLabel#special { color: #abcdef; }"
+    assert "/* Custom QSS */" in imported.qss()
+    assert "QLabel#special { color: #abcdef; }" in imported.qss()
+    assert theme_to_dict(imported)["custom_qss"] == data["custom_qss"]
+
+
+@pytest.mark.ui
+def test_parse_qss_theme_overrides_extracts_chrome_and_metrics():
+    qss = """
+    QMainWindow { background-color: #101010; color: #eeeeee; }
+    QPushButton {
+        background-color: #202020;
+        border: 2px solid #404040;
+        border-radius: 9px;
+        padding: 7px;
+        min-height: 34px;
+    }
+    QLineEdit {
+        background-color: #303030;
+        color: #aaaaaa;
+        selection-background-color: #ff00aa;
+        selection-color: #000000;
+    }
+    """
+
+    parsed = parse_qss_theme_overrides(qss)
+
+    assert parsed["theme"]["custom_qss"] == qss.strip()
+    assert parsed["theme"]["base_bg"] == "#101010"
+    assert parsed["theme"]["panel_bg"] == "#202020"
+    assert parsed["theme"]["window_bg"] == "#303030"
+    assert parsed["theme"]["text"] == "#eeeeee"
+    assert parsed["theme"]["muted_text"] == "#aaaaaa"
+    assert parsed["theme"]["button_border"] == "#404040"
+    assert parsed["theme"]["highlight"] == "#ff00aa"
+    assert parsed["app_style"]["border_radius"] == 9
+    assert parsed["app_style"]["border_width"] == 2
+    assert parsed["app_style"]["padding_x"] == 7
+    assert parsed["app_style"]["control_min_height"] == 34
 
 
 @pytest.mark.ui

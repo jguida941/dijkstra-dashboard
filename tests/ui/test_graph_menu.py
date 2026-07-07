@@ -87,6 +87,18 @@ def test_main_layout_exposes_horizontal_and_vertical_splitters(qapp, tmp_path):
     window.close()
 
 
+def test_main_splitter_allows_inspector_to_collapse_for_full_graph(qapp, tmp_path):
+    window = MainWindow(settings=_ini_settings(tmp_path))
+    window.resize(1200, 800)
+    window.main_splitter.setSizes([1200, 0])
+    qapp.processEvents()
+
+    assert window.main_splitter.isCollapsible(0) is False
+    assert window.main_splitter.isCollapsible(1) is True
+    assert window.main_splitter.sizes()[1] == 0
+    window.close()
+
+
 def test_snap_to_grid_action_and_dragged_position_rounding(qapp, tmp_path):
     window = MainWindow(settings=_ini_settings(tmp_path))
     graph_menu = _menu(window, "Graph")
