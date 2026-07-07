@@ -105,12 +105,14 @@ def test_from_dict_clamps_graph_opacity_above_invisible():
     theme = theme_from_dict({
         "id": "opacity-guard",
         "name": "Opacity Guard",
-        "node_styles": {"default": {"opacity": 0.0}},
-        "edge_styles": {"default": {"opacity": 0.0}},
+        "node_styles": {"default": {"opacity": 0.0, "ring_width": 99.0}},
+        "edge_styles": {"default": {"opacity": 0.0, "width": 99.0}},
     })
 
     assert theme.node_styles["default"].opacity == 0.12
+    assert theme.node_styles["default"].ring_width == 12.0
     assert theme.edge_styles["default"].opacity == 0.12
+    assert theme.edge_styles["default"].width == 12.0
 
 
 @pytest.mark.ui

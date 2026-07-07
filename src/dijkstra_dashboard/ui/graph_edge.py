@@ -253,7 +253,7 @@ class GraphEdge(QGraphicsPathItem):
             painter.setPen(
                 QPen(
                     self._halo_paint_color(),
-                    self._style.width + 6,
+                    self._halo_width(),
                     Qt.PenStyle.SolidLine,
                     Qt.PenCapStyle.RoundCap,
                     Qt.PenJoinStyle.RoundJoin,
@@ -316,7 +316,7 @@ class GraphEdge(QGraphicsPathItem):
         self.update_position()
 
     def _apply_style(self, style: EdgeStyle):
-        bounds_width = max(style.width, style.width + 6 if style.halo else style.width) + 4
+        bounds_width = max(style.width, self._halo_width() if style.halo else style.width) + 4
         pen = QPen(QColor(style.stroke), bounds_width, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
         self.setPen(pen)
         self.label.set_chip_style(style, current_theme().accent)
@@ -328,9 +328,22 @@ class GraphEdge(QGraphicsPathItem):
 
     def _halo_paint_color(self) -> QColor:
         halo = QColor(self._style.halo or "#00000000")
-        if halo.alpha() > 90:
-            halo.setAlpha(90)
+        alpha_cap = self._halo_alpha_cap()
+        if halo.alpha() > alpha_cap:
+            halo.setAlpha(alpha_cap)
         return halo
+
+    def _halo_alpha_cap(self) -> int:
+        # Final and actively relaxing edges may glow strongly. Idle, inspected,
+        # rejected, and unreachable edges get a much quieter halo so a pasted
+        # theme cannot make them read as the route itself.
+        return 90 if self._state in {"relaxed", "final"} else 38
+
+    def _halo_width(self) -> float:
+        # Same state split as alpha: broad glow for route/active edges, subtle
+        # glow for background states. This keeps custom halos from becoming rails.
+        padding = 6 if self._state in {"relaxed", "final"} else 2
+        return self._style.width + padding
 
     def _resolve_state(self, state):
         theme = current_theme()

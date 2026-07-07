@@ -74,6 +74,8 @@ read.
   radii, padding, sliders, scrollbars, splitter handles, and animation colors.
 - **Custom themes**: save edited themes, import/export theme JSON, paste JSON, import/paste Qt stylesheet
   QSS, copy generated QSS, and delete saved custom themes from View -> Delete Custom Theme... or inside the editor.
+- **QSS import flow**: pasted QSS is saved as a stylesheet layer. Press **Import pasted QSS** when you want
+  to copy stylesheet colors into editable theme fields; later manual color edits stay in charge when saved.
 - **Animation controls**: choose the relax effect, final reveal style, motion scale, travel color, impact
   color, badge flash color, and whether node rings or badges flash when an animation hits.
 

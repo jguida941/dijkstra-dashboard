@@ -150,7 +150,13 @@ def test_edge_halo_color_is_capped_to_translucent_glow(qapp):
     scene.addItem(edge)
     edge._style = replace(edge._style, halo="#ff9966ff")
 
+    assert edge._halo_paint_color().alpha() == 38
+    assert edge._halo_width() == edge._style.width + 2
+
+    edge.set_state("final")
+    edge._style = replace(edge._style, halo="#ff9966ff")
     assert edge._halo_paint_color().alpha() == 90
+    assert edge._halo_width() == edge._style.width + 6
 
     edge._style = replace(edge._style, halo="#4000e5ff")
     assert edge._halo_paint_color().alpha() == 0x40

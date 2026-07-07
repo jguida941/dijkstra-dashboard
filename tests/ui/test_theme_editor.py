@@ -173,7 +173,7 @@ def test_pasted_qss_import_updates_working_theme_and_export_preview(qapp):
 
 
 @pytest.mark.ui
-def test_pasted_qss_saves_without_pressing_import_button(qapp):
+def test_pasted_qss_saves_raw_stylesheet_without_reparsing_palette(qapp):
     manager = get_theme_manager()
     manager.set_theme("neon-dark", persist=False)
     window = MainWindow()
@@ -207,8 +207,8 @@ QPushButton {
         path = custom_theme_dir() / "paste-save-qss.json"
         data = json.loads(path.read_text(encoding="utf-8"))
         assert data["custom_qss"] == qss
-        assert data["base_bg"] == "#5b4d43"
-        assert data["button_bg"] == "#8e745d"
+        assert data["base_bg"] == ThemeManager.THEMES["neon-dark"].base_bg
+        assert data["button_bg"] == ThemeManager.THEMES["neon-dark"].button_bg
         assert manager.current.id == "paste-save-qss"
         assert manager.current.custom_qss == qss
         assert "background-color: #5B4D43" in qapp.styleSheet()
@@ -216,6 +216,49 @@ QPushButton {
         if dialog.result() != int(dialog.DialogCode.Accepted):
             dialog.reject()
         window.close()
+
+
+@pytest.mark.ui
+def test_saving_theme_with_existing_qss_preserves_manual_palette_edits(qapp):
+    manager = get_theme_manager()
+    manager.set_theme("neon-dark", persist=False)
+    qss = """
+QWidget {
+    background-color: #5B4D43;
+    color: #F9E1C2;
+}
+QPushButton {
+    background-color: #8E745D;
+}
+""".strip()
+
+    import_dialog = ThemeEditorDialog()
+    try:
+        import_dialog._name_edit.setText("QSS Then Manual")
+        import_dialog._qss_paste.setPlainText(qss)
+        assert import_dialog._apply_pasted_qss() is True
+        import_dialog._on_save()
+    finally:
+        if import_dialog.result() != int(import_dialog.DialogCode.Accepted):
+            import_dialog.reject()
+
+    edit_dialog = ThemeEditorDialog()
+    try:
+        assert edit_dialog._working["custom_qss"] == qss
+        edit_dialog._edit_hex(("canvas_bg_top",), "#000000")
+        edit_dialog._edit_hex(("accent",), "#0033cc")
+        edit_dialog._on_save()
+
+        path = custom_theme_dir() / "qss-then-manual.json"
+        data = json.loads(path.read_text(encoding="utf-8"))
+        assert data["custom_qss"] == qss
+        assert data["canvas_bg_top"] == "#000000"
+        assert data["accent"] == "#0033cc"
+        assert manager.current.canvas_bg_top == "#000000"
+        assert manager.current.accent == "#0033cc"
+    finally:
+        if edit_dialog.result() != int(edit_dialog.DialogCode.Accepted):
+            edit_dialog.reject()
 
 
 @pytest.mark.ui
@@ -244,7 +287,14 @@ def test_turning_on_empty_halo_uses_translucent_theme_color(qapp):
 
         dialog._on_none_toggled(path, False)
 
-        assert dialog._working["edge_styles"]["default"]["halo"] == "#5a00e5ff"
+        assert dialog._working["edge_styles"]["default"]["halo"] == "#2600e5ff"
+
+        active_path = ("edge_styles", "final", "halo")
+        dialog._seed["edge_styles"]["final"]["halo"] = None
+        dialog._working["edge_styles"]["final"]["halo"] = None
+        dialog._on_none_toggled(active_path, False)
+
+        assert dialog._working["edge_styles"]["final"]["halo"] == "#5a00e5ff"
     finally:
         dialog.reject()
 

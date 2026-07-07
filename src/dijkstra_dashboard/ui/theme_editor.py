@@ -612,7 +612,7 @@ class ThemeEditorDialog(QDialog):
         self._qss_paste = QPlainTextEdit()
         self._qss_paste.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
         self._qss_paste.setPlaceholderText(
-            "Paste a Qt stylesheet (QSS) here. It will be saved with this theme and parsed into editable colors where possible."
+            "Paste a Qt stylesheet (QSS) here. It is saved with this theme. Use Import pasted QSS to copy its colors into editable fields."
         )
         self._qss_paste.textChanged.connect(self._on_qss_paste_changed)
         qss_paste_layout.addWidget(self._qss_paste, stretch=1)
@@ -688,7 +688,8 @@ class ThemeEditorDialog(QDialog):
     def _nullable_color_fallback(self, path):
         if path and path[-1] == "halo":
             color = QColor(self._working.get("accent", "#00e5ff"))
-            color.setAlpha(90)
+            state = path[-2] if len(path) >= 2 else ""
+            color.setAlpha(90 if state in {"relaxed", "final"} else 38)
             return color.name(QColor.NameFormat.HexArgb)
         if path and path[-1] == "glow":
             color = QColor(self._working.get("accent", "#00e5ff"))
@@ -1007,7 +1008,10 @@ class ThemeEditorDialog(QDialog):
         if not name:
             self._show_error("Theme name cannot be empty.")
             return
-        if not self._sync_qss_paste_to_working(parse=True, show_errors=True):
+        # Save must not re-import QSS over manual palette edits. "Import pasted
+        # QSS" is the explicit one-shot bridge from QSS into editable fields;
+        # saving only persists the raw stylesheet layer.
+        if not self._sync_qss_paste_to_working(parse=False, show_errors=False):
             return
         slug = self._current_slug()
         save_data = dict(self._working)

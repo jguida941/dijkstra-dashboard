@@ -1046,7 +1046,7 @@ def theme_from_dict(data) -> Theme:
         node_styles[state] = NodeStyle(
             fill=_pick_str(raw, "fill", base.fill),
             ring=_pick_str(raw, "ring", base.ring),
-            ring_width=_pick_num(raw, "ring_width", base.ring_width),
+            ring_width=_pick_float_clamped(raw, "ring_width", base.ring_width, 0.0, 12.0),
             text=_pick_str(raw, "text", base.text),
             glow=_pick_nullable_str(raw, "glow", base.glow),
             opacity=_pick_float_clamped(raw, "opacity", base.opacity, 0.12, 1.0),
@@ -1063,7 +1063,7 @@ def theme_from_dict(data) -> Theme:
             raw = {}
         edge_styles[state] = EdgeStyle(
             stroke=_pick_str(raw, "stroke", base.stroke),
-            width=_pick_num(raw, "width", base.width),
+            width=_pick_float_clamped(raw, "width", base.width, 0.0, 12.0),
             label_fg=_pick_str(raw, "label_fg", base.label_fg),
             chip_bg=_pick_str(raw, "chip_bg", base.chip_bg),
             chip_border=_pick_str(raw, "chip_border", base.chip_border),
