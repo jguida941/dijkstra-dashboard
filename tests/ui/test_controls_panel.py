@@ -71,3 +71,20 @@ def test_combo_popup_uses_theme_highlight(qapp):
     assert popup.palette().color(QPalette.ColorRole.Highlight).name() == QColor(theme.highlight).name()
     assert popup.palette().color(QPalette.ColorRole.HighlightedText).name() == QColor(theme.highlight_text).name()
     assert theme.highlight in popup.styleSheet()
+
+
+def test_combo_popup_highlights_current_row(qapp):
+    panel = ControlsPanel()
+    panel.set_algorithms([
+        ("dijkstra", "Dijkstra"),
+        ("bfs", "BFS"),
+        ("bellman-ford", "Bellman-Ford"),
+    ])
+    panel.algorithm_combo.setCurrentIndex(2)
+
+    panel.algorithm_combo._highlight_current_row()
+
+    popup = panel.algorithm_combo.view()
+    index = panel.algorithm_combo.model().index(2, 0)
+    assert popup.currentIndex() == index
+    assert popup.selectionModel().isSelected(index)

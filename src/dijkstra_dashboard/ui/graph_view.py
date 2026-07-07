@@ -254,8 +254,9 @@ class GraphView(QGraphicsView):
         if overlay is None:
             return
         overlay.adjustSize()
-        x = self.width() - overlay.width() - 12
-        y = self.height() - overlay.height() - 12
+        margin = 28
+        x = self.width() - overlay.width() - margin
+        y = self.height() - overlay.height() - margin
         overlay.move(max(0, x), max(0, y))
 
     def resizeEvent(self, event: QResizeEvent):

@@ -59,7 +59,10 @@ class NarrationPanel(QTextEdit):
     def _write_line(self, text, role, theme):
         cursor = self.textCursor()
         text_format = QTextCharFormat()
-        text_format.setForeground(theme.color(role))
+        color_role = "text" if role == "startup_help" else role
+        text_format.setForeground(theme.color(color_role))
+        if role == "startup_help":
+            text_format.setFontPointSize(12)
         cursor.setCharFormat(text_format)
         cursor.insertText(text + "\n")
         self.setTextCursor(cursor)

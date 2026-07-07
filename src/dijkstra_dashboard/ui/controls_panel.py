@@ -1,8 +1,34 @@
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QComboBox, QPushButton, QSlider, QLabel, QCheckBox
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QItemSelectionModel, QTimer, Qt
 from PyQt6.QtGui import QColor, QPalette
 
 from dijkstra_dashboard.ui.theme import current_theme
+
+
+class HighlightComboBox(QComboBox):
+    """QComboBox popup that visibly selects the current row when opened."""
+
+    def showPopup(self):
+        super().showPopup()
+        self._highlight_current_row()
+        QTimer.singleShot(0, self._highlight_current_row)
+
+    def _highlight_current_row(self):
+        row = self.currentIndex()
+        if row < 0:
+            return
+        model_index = self.model().index(row, self.modelColumn(), self.rootModelIndex())
+        view = self.view()
+        view.setCurrentIndex(model_index)
+        selection = view.selectionModel()
+        if selection is not None:
+            selection.select(
+                model_index,
+                QItemSelectionModel.SelectionFlag.ClearAndSelect
+                | QItemSelectionModel.SelectionFlag.Rows,
+            )
+        view.scrollTo(model_index)
+
 
 class ControlsPanel(QWidget):
     def __init__(self):
@@ -18,17 +44,17 @@ class ControlsPanel(QWidget):
         row1.setAlignment(Qt.AlignmentFlag.AlignLeft)
 
         # Algorithm selection (objectName-free, non-editable)
-        self.algorithm_combo = QComboBox()
+        self.algorithm_combo = HighlightComboBox()
         row1.addWidget(self.algorithm_combo)
 
         # Start node selection
-        self.start_combo = QComboBox()
+        self.start_combo = HighlightComboBox()
         self.start_combo.addItems(['A', 'B', 'C', 'D', 'E', 'F'])
         self.start_combo.setCurrentText('A')
         row1.addWidget(self.start_combo)
 
         # Target node selection
-        self.target_combo = QComboBox()
+        self.target_combo = HighlightComboBox()
         self.target_combo.addItems(['A', 'B', 'C', 'D', 'E', 'F'])
         self.target_combo.setCurrentText('F')
         row1.addWidget(self.target_combo)

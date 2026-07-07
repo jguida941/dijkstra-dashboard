@@ -68,6 +68,9 @@ class InspectorPanel(QWidget):
     def update_status(self, message, color="text"):
         self.narration.append_line(message, color)
 
+    def show_startup_help(self, message):
+        self.narration.append_line(message, "startup_help")
+
     def clear_all(self):
         self.narration.clear()
 

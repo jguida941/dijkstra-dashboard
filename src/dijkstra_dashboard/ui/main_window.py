@@ -139,12 +139,12 @@ class MainWindow(QMainWindow):
         self.controls_panel.set_nodes(self.graph_view.get_node_items())
         if self.graph_view.get_graph():
             self._set_directed_toggle(self.graph_view.get_graph().directed)
-        self.inspector.update_status(
+        self.inspector.show_startup_help(
             "Add node: Shift+click empty space\n"
             "Add edge: Ctrl/Option/Shift+click two nodes\n"
             "Directed arrows: selection order sets direction\n"
             "Remove: select node/edge, press Delete\n"
-            "Pan: right-drag"
+            "Pan: drag empty canvas, right-drag, or middle-drag"
         )
 
         # Add panels to movable splitters.

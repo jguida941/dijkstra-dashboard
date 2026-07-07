@@ -47,8 +47,10 @@ def test_startup_narration_help_is_scannable(qapp):
         "Add edge: Ctrl/Option/Shift+click two nodes",
         "Directed arrows: selection order sets direction",
         "Remove: select node/edge, press Delete",
-        "Pan: right-drag",
+        "Pan: drag empty canvas, right-drag, or middle-drag",
     ]
+    fragment = window.inspector.narration.document().firstBlock().begin().fragment()
+    assert fragment.charFormat().fontPointSize() == 12
     window.close()
 
 

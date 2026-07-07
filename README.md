@@ -5,11 +5,11 @@
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 An interactive teaching tool for shortest-path algorithms. Build a weighted graph on the canvas, pick an
-algorithm, and watch it run **step by step** — play, pause, step forward or back, and scrub the timeline to
+algorithm, and watch it run **step by step**: play, pause, step forward or back, and scrub the timeline to
 any point. A live inspector shows the distance table, the algorithm's pseudocode with the current line
 highlighted, and a plain-English narration of every visit, relaxation, and skip. Four algorithms
-(Dijkstra, BFS, Bellman-Ford, A\*) and three themes (including a colorblind-safe light mode) make the same
-graph easy to compare and easy to read.
+(Dijkstra, BFS, Bellman-Ford, A\*) and live-editable themes make the same graph easy to compare and easy to
+read.
 
 ## Screenshots
 
@@ -22,10 +22,10 @@ graph easy to compare and easy to read.
 ## Features
 
 ### Step / scrub playback
-- **Transport controls** — Run, Step, Step Back, Play/Pause, and Reset.
-- **Timeline scrubber** — drag to jump to any step; the whole view re-derives that frame exactly.
-- **Adjustable speed** — a slider sets the autoplay interval.
-- **Keyboard shortcuts** — Space to play/pause, Left/Right to step, Home/End to jump to the first/last step.
+- **Transport controls**: Run, Step, Step Back, Play/Pause, and Reset.
+- **Timeline scrubber**: drag to jump to any step; the whole view re-derives that frame exactly.
+- **Adjustable speed**: a slider sets the autoplay interval.
+- **Keyboard shortcuts**: Space to play/pause, Left/Right to step, Home/End to jump to the first/last step.
 
 ### Educational inspector
 - **Distance table** that updates live as nodes are settled and edges relaxed.
@@ -36,36 +36,46 @@ graph easy to compare and easy to read.
 - **Color legend** for current / visited / final-path / not-in-path / unreachable states.
 
 ### Algorithm suite
-- **Dijkstra** — least-total-weight shortest path over non-negative weights.
-- **BFS** — fewest-*hops* path that ignores weights, so you can contrast "fewest edges" against Dijkstra's
+- **Dijkstra**: least-total-weight shortest path over non-negative weights.
+- **BFS**: fewest-*hops* path that ignores weights, so you can contrast "fewest edges" against Dijkstra's
   "least total weight" on the same graph.
-- **Bellman-Ford** — handles negative edge weights and **detects negative cycles**, reporting when no
+- **Bellman-Ford**: handles negative edge weights and **detects negative cycles**, reporting when no
   shortest path exists.
-- **A\*** — Dijkstra guided by a spatial (Euclidean) heuristic scaled to stay admissible (see below).
+- **A\***: Dijkstra guided by a spatial (Euclidean) heuristic scaled to stay admissible (see below).
 
 ### Graph editing
-- Add nodes, connect them with weighted edges, rename nodes, edit weights, drag to reposition, and delete —
+- Add nodes, connect them with weighted edges, rename nodes, edit weights, drag to reposition, and delete -
   all directly on the canvas.
 - **Undirected** or **directed** mode (directed uses selection order for arrow direction; add reverse edges
   for two-way paths with different weights).
 - **Open / Save / Save As** graphs as JSON (node positions, labels, weights, and directed/undirected mode
   are preserved).
-- **Undo / redo** for every edit — add/delete/rename, weight changes, node moves (one step per drag),
-  layout application, and the directed toggle — via Edit → Undo / Redo (Ctrl+Z / Ctrl+Shift+Z).
+- **Undo / redo** for every edit: add/delete/rename, weight changes, node moves (one step per drag),
+  layout application, and the directed toggle via Edit -> Undo / Redo (Ctrl+Z / Ctrl+Shift+Z).
 
 ### Graph tooling
-- **Generate Random…** — seeded random graphs (2–50 nodes, edge density, weight range, directed,
+- **Generate Random...**: seeded random graphs (2-50 nodes, edge density, weight range, directed,
   connected); the resolved seed is echoed back so every generation is reproducible.
-- **Layouts** — Circle, Grid, and Spring (deterministic), animated into place from the Graph menu.
-- **New / New Demo Graph / Examples** — start fresh, reload the classic A–F demo, or open the bundled
+- **Layouts**: Circle, Grid, and Spring (deterministic), animated into place from the Graph menu.
+- **Snap to Grid**: optional grid drawing and node snapping, with editable grid spacing.
+- **Movable splitters**: resize the controls, graph canvas, and inspector panels to fit your workflow.
+- **Canvas navigation**: drag empty canvas, right-drag, or middle-drag to pan; use the mouse wheel or
+  overlay buttons to zoom.
+- **New / New Demo Graph / Examples**: start fresh, reload the classic A-F demo, or open the bundled
   example graphs (source checkout only).
-- **Export** — save the canvas as a **PNG** (2× scale) or **SVG** from the File menu.
-- **Recent files** — the File menu keeps the last eight graphs you opened or saved.
+- **Export**: save the canvas as a **PNG** (2x scale) or **SVG** from the File menu.
+- **Recent files**: the File menu keeps the last eight graphs you opened or saved.
 
 ### Themes
-- **Neon Dark**, **Midnight**, and **Paper Light** — switch live from the View → Theme menu; your choice is
+- **Neon Dark**, **Midnight**, and **Paper Light**: switch live from the View -> Theme menu; your choice is
   persisted between sessions.
 - **Paper Light** uses the **Okabe-Ito** colorblind-safe palette.
+- **Theme Studio**: open View -> Edit Theme... to tune canvas colors, node states, edge states, Qt borders,
+  radii, padding, sliders, scrollbars, splitter handles, and animation colors.
+- **Custom themes**: save edited themes, import/export theme JSON, paste JSON, copy JSON, copy generated
+  QSS, and delete saved custom themes from View -> Delete Custom Theme... or inside the editor.
+- **Animation controls**: choose the relax effect, final reveal style, motion scale, travel color, impact
+  color, badge flash color, and whether node rings or badges flash when an animation hits.
 
 ## Installation
 
@@ -110,16 +120,18 @@ Editing gestures and keyboard shortcuts (the in-app **Help → Controls** dialog
 | Edit edge weight | Double-click an edge or its weight chip |
 | Move node | Drag the node |
 | Remove node / edge | Select it and press Delete (or Backspace) |
-| Pan the view | Right-click and drag |
+| Pan the view | Drag empty canvas, right-drag, or middle-drag |
 | Zoom | Mouse wheel (anchored under the cursor), or the +/- / 100% overlay buttons |
-| Zoom / fit menu | View → Zoom In / Zoom Out / Reset Zoom / Fit to Graph |
+| Zoom / fit menu | View -> Zoom In / Zoom Out / Reset Zoom / Fit to Graph |
 | Play / Pause | Space |
 | Step forward / back | Right / Left arrow |
 | Jump to first / last step | Home / End |
 | Undo / Redo | Ctrl+Z / Ctrl+Shift+Z (Cmd on macOS) |
-| Generate a random graph | Graph → Generate Random… |
-| Apply a layout | Graph → Layout → Circle / Grid / Spring |
-| Export the canvas | File → Export as PNG… / Export as SVG… |
+| Generate a random graph | Graph -> Generate Random... |
+| Apply a layout | Graph -> Layout -> Circle / Grid / Spring |
+| Toggle grid snapping | Graph -> Snap to Grid / Grid Size... |
+| Edit or delete themes | View -> Edit Theme... / Delete Custom Theme... |
+| Export the canvas | File -> Export as PNG... / Export as SVG... |
 
 Transport shortcuts use a window-level binding with a focus guard: they are ignored while an editable widget
 (a combo box, slider, or text field) holds keyboard focus, so typing a weight or picking an algorithm never
@@ -127,24 +139,24 @@ triggers playback.
 
 ## Algorithms
 
-**Dijkstra** — Repeatedly settles the unvisited node with the smallest tentative distance, then relaxes its
+**Dijkstra**: Repeatedly settles the unvisited node with the smallest tentative distance, then relaxes its
 outgoing edges. Requires non-negative weights (negative weights raise an error). With a target set, it stops
 as soon as the target is settled.
 
-**BFS (breadth-first search)** — Explores in FIFO order, counting *hops* rather than summing weights, so it
+**BFS (breadth-first search)**: Explores in FIFO order, counting *hops* rather than summing weights, so it
 returns the path with the fewest edges. Running BFS and Dijkstra on the same weighted graph makes the
 difference between "fewest edges" and "least total weight" concrete.
 
-**Bellman-Ford** — Relaxes every edge over up to `|V| - 1` passes (undirected edges are relaxed in both
+**Bellman-Ford**: Relaxes every edge over up to `|V| - 1` passes (undirected edges are relaxed in both
 directions), stopping early once a pass makes no changes. A final detection pass checks whether any edge can
-still be relaxed; if so, a **negative cycle** exists and the run reports that no shortest paths are defined —
+still be relaxed; if so, a **negative cycle** exists and the run reports that no shortest paths are defined -
 the teaching point that Dijkstra cannot handle negative weights but Bellman-Ford can, up to a cycle.
 
-**A\*** — Dijkstra ordered by `f = g + h`, where `h(n)` is the straight-line (Euclidean) distance from `n`
+**A\***: Dijkstra ordered by `f = g + h`, where `h(n)` is the straight-line (Euclidean) distance from `n`
 to the target scaled by a constant `c`. That constant is the minimum ratio of edge weight to edge length
 across the graph, so every edge costs at least `c` times its Euclidean length. Because the straight-line
 distance scaled by `c` is therefore never more than the true remaining cost, the heuristic is admissible
-(and consistent), which guarantees A\* still returns an optimal path — it just settles fewer nodes by
+(and consistent), which guarantees A\* still returns an optimal path - it just settles fewer nodes by
 steering toward the target. A\* requires a target.
 
 ## Architecture
@@ -158,11 +170,11 @@ steering toward the target. A\* requires a target.
 - **Snapshot undo/redo.** Every mutation captures a whole-graph before/after snapshot pair onto a
   `QUndoStack`; undo restores through the same `set_graph` pipeline the file loaders use.
 - **Refold scrubbing.** `PlaybackController` owns the trace and replay state. Seeking or stepping back
-  re-folds `steps[:index]` from scratch, so every frame — forward, backward, or a timeline jump — is
+  re-folds `steps[:index]` from scratch, so every frame, whether forward, backward, or a timeline jump, is
   reconstructed deterministically, and the graph view stays a pure renderer of the emitted `RenderFrame`.
 - **Theme engine.** A `ThemeManager` holds three immutable `Theme` dataclasses with per-state node/edge
-  style maps; it generates the Qt palette and stylesheet from color tokens, emits `theme_changed`, and
-  persists the selection via a small JSON config.
+  style maps; it generates the Qt palette and stylesheet from color tokens, emits `theme_changed`, persists
+  the selection via a small JSON config, and saves custom user themes as JSON files.
 - **Pseudocode / step-line maps.** Every algorithm carries its own `pseudocode` lines and a `step_line_map`
   from `(step kind, reason)` to the pseudocode line numbers to highlight, which is what lets the inspector
   point at the code responsible for each step.
@@ -171,4 +183,4 @@ steering toward the target. A\* requires a target.
 
 ## License
 
-Released under the [MIT License](LICENSE) — Copyright (c) 2025 Justin Guida.
+Released under the [MIT License](LICENSE). Copyright (c) 2025 Justin Guida.

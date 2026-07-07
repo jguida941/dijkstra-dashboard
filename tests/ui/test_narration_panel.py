@@ -47,3 +47,16 @@ def test_consecutive_jump_markers_collapse_to_one(qapp):
     assert text.count("jumped to step") == 1
     assert "jumped to step 7" in text
     assert "Visit A (d=0)." in text
+
+
+@pytest.mark.ui
+def test_startup_help_role_is_larger_but_normal_lines_stay_default(qapp):
+    panel = NarrationPanel()
+    panel.append_line("Add node: Shift+click empty space", "startup_help")
+    panel.append_line("Visit A (d=0).", "accent")
+
+    first = panel.document().firstBlock().begin().fragment().charFormat()
+    second = panel.document().firstBlock().next().begin().fragment().charFormat()
+
+    assert first.fontPointSize() == 12
+    assert second.fontPointSize() == 0

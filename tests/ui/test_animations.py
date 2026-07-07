@@ -117,6 +117,18 @@ def test_resize_leaves_scene_rect_unchanged(qapp, qtbot):
     assert (after.width(), after.height()) == (3000, 2000)
 
 
+def test_zoom_overlay_keeps_clearance_from_view_edges(qapp, qtbot):
+    view = GraphView()
+    qtbot.addWidget(view)
+    view.resize(800, 600)
+
+    view._anchor_zoom_overlay()
+
+    overlay = view.zoom_controls_widget.geometry()
+    assert view.width() - overlay.right() >= 28
+    assert view.height() - overlay.bottom() >= 28
+
+
 def test_node_clamps_against_big_scene_rect(qapp):
     # A node can now sit far outside the old 800x600 viewport bounds.
     view = GraphView()
