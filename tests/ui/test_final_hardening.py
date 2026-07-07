@@ -56,3 +56,29 @@ def test_svg_export_reports_failure_on_bad_path(qapp):
     window = MainWindow()
     assert export_scene_svg(window.graph_view.scene, "/tmp/no-such-dir-ddash-final/out.svg") is False
     window.close()
+
+
+@pytest.mark.ui
+def test_fold_error_narrated_once_not_duplicated(qapp):
+    # A run that ends in a fold error (undirected negative edge -> negative
+    # cycle) narrates the error via describe_summary AND used to re-narrate it
+    # via the paired run_error handler. The log must contain it exactly once;
+    # the notice banner must still show it.
+    window = MainWindow()
+    graph = Graph(directed=False)
+    for i, n in enumerate("ABC"):
+        graph.add_node(node_id=n, label=n, x=float(i * 60), y=0.0)
+    graph.add_edge("A", "B", -1)
+    graph.add_edge("B", "C", 2)
+    window.graph_view.set_graph(graph, fit=False)
+
+    combo = window.controls_panel.algorithm_combo
+    combo.setCurrentIndex(combo.findData("bellman-ford"))
+    window.start_visualization()
+    window.playback.seek(window.playback.total)
+
+    error_lines = [text for text, _role in window.inspector.narration._log
+                   if "negative cycle" in text.lower()]
+    assert len(error_lines) == 1, error_lines
+    assert "Directed mode" in window.notice_label.text()
+    window.close()

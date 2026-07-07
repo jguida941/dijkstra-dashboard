@@ -12,6 +12,7 @@ inside the SVG, which is accepted.
 from __future__ import annotations
 
 import os
+from contextlib import contextmanager
 
 from PyQt6.QtCore import QRectF, QSize, Qt
 from PyQt6.QtGui import QImage, QPainter
@@ -36,6 +37,22 @@ def _source_rect(scene) -> QRectF:
     )
 
 
+@contextmanager
+def _selection_hidden(scene):
+    """Render without selection chrome (dashed rings), restoring it after.
+
+    Selection is editor state, not graph data — it must never bake into an
+    exported image.
+    """
+    selected = list(scene.selectedItems())
+    scene.clearSelection()
+    try:
+        yield
+    finally:
+        for item in selected:
+            item.setSelected(True)
+
+
 def export_scene_png(scene, path, scale: float = 2.0) -> bool:
     """Render ``scene`` to a PNG at ``path``; return True on success.
 
@@ -58,7 +75,8 @@ def export_scene_png(scene, path, scale: float = 2.0) -> bool:
     painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
     painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
     target = QRectF(0.0, 0.0, float(width), float(height))
-    scene.render(painter, target, source)
+    with _selection_hidden(scene):
+        scene.render(painter, target, source)
     painter.end()
 
     return bool(image.save(str(path), "PNG"))
@@ -92,7 +110,8 @@ def export_scene_svg(scene, path) -> bool:
     if not painter.isActive():
         # Qt could not open the output device (missing directory, permissions).
         return False
-    scene.render(painter, QRectF(0.0, 0.0, float(width), float(height)), source)
+    with _selection_hidden(scene):
+        scene.render(painter, QRectF(0.0, 0.0, float(width), float(height)), source)
     painter.end()
 
     return os.path.exists(str(path)) and os.path.getsize(str(path)) > 0

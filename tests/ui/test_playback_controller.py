@@ -172,3 +172,18 @@ def test_start_equals_target_finishes_with_zero_distance(qapp, sample_graph):
     assert events["frames"][-1].path == ("A",)
     assert events["finished"][0]["path"] == ("A",)
     assert events["finished"][0]["distance"] == 0.0
+
+
+def test_seek_to_end_while_playing_pauses_and_stops_timer(qapp, sample_graph):
+    # Scrubbing (or End) to the last step while autoplaying must stop the timer
+    # and emit playing_changed(False), or the Play button sticks on "Pause" and
+    # the timer keeps firing no-op steps forever.
+    controller, events = _load(sample_graph)
+    controller.play()
+    assert controller.is_playing
+
+    controller.seek(controller.total)
+
+    assert not controller.is_playing
+    assert events["playing"] == [True, False]
+    assert events["finished"]

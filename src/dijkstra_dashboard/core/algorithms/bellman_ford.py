@@ -146,13 +146,23 @@ class BellmanFordAlgorithm(PathfindingAlgorithm):
                 if dist[u] == float("inf"):
                     continue
                 if dist[u] + w < dist[v]:
+                    payload = {"negative_cycle": True}
+                    if not graph.directed:
+                        # Every undirected negative edge is a two-node negative
+                        # cycle, so on the default graph type the bare message
+                        # reads like a solver failure; explain the way out.
+                        payload["message"] = (
+                            "Negative cycle detected: in an undirected graph every "
+                            "negative edge forms a two-node negative cycle. Switch "
+                            "to Directed mode to explore negative weights."
+                        )
                     yield {
                         "kind": "final",
                         "node": target,
                         "edge": None,
                         "old_distance": None,
                         "new_distance": None,
-                        "payload": {"negative_cycle": True},
+                        "payload": payload,
                     }
                     return
 

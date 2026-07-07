@@ -80,7 +80,7 @@ def result_from_steps(steps: Iterable[AlgorithmStep], nodes: Iterable[str], star
                       kind: AlgorithmOutput = "single_path") -> AlgorithmResult:
     state = apply_steps(steps, nodes)
     if state.payload.get("negative_cycle"):
-        raise AlgorithmError("Negative cycle detected.")
+        raise AlgorithmError(state.payload.get("message") or "Negative cycle detected.")
 
     paths = build_paths(state.prev, start, state.distances)
     if target is None:

@@ -1,6 +1,6 @@
 from PyQt6 import sip
 from PyQt6.QtWidgets import QGraphicsView, QGraphicsScene, QPushButton, QWidget, QInputDialog, QGraphicsSimpleTextItem, QSizePolicy
-from PyQt6.QtCore import Qt, QPointF, QTimer, pyqtSignal
+from PyQt6.QtCore import QEvent, Qt, QPointF, QTimer, pyqtSignal
 from PyQt6.QtGui import QBrush, QColor, QLinearGradient, QPen, QResizeEvent
 from .graph_node import GraphNode
 from .graph_edge import GraphEdge, WeightChip
@@ -72,6 +72,9 @@ class GraphView(QGraphicsView):
         self._snap_to_grid = False
         self._grid_size = 40.0
         self._snapping_node = False
+        # Set while a computed layout is being applied: node moves must NOT be
+        # grid-snapped or the layout's exact positions get quantized/stuttered.
+        self._suspend_snap = False
         self._is_panning = False
         self._pan_button = Qt.MouseButton.NoButton
         self._pan_last_pos = None
@@ -152,12 +155,15 @@ class GraphView(QGraphicsView):
         )
         zoom_in_btn.clicked.connect(self.zoom_in)
 
-        # Add controls to the viewport so the overlay clears the visible canvas
-        # area instead of the outer QGraphicsView frame/splitter edge.
-        controls_widget.setParent(self.viewport())
-        controls_widget.move(10, 10)
+        # Parent to the view itself, NOT the viewport: QGraphicsView scrolls the
+        # viewport's child widgets along with the canvas, so a viewport-parented
+        # overlay drifts away (and can leave the visible area) on every pan.
+        # _anchor_zoom_overlay positions it against the viewport's geometry so it
+        # still clears the frame/splitter edge.
+        controls_widget.setParent(self)
         controls_widget.raise_()
         self.zoom_controls_widget = controls_widget
+        self._anchor_zoom_overlay()
 
     def _apply_canvas_bg(self, theme):
         rect = self.scene.sceneRect()
@@ -196,10 +202,18 @@ class GraphView(QGraphicsView):
             edge.refresh_theme()
 
     def zoom_in(self):
-        self._animate_zoom(min(5.0, self.zoom_level + self.zoom_step))
+        # Snap any in-flight ease first so every click advances one full step
+        # (a mid-tween zoom_level would otherwise swallow part of the step).
+        self.animator.cancel("zoom")
+        target = min(5.0, self.zoom_level + self.zoom_step)
+        if target > self.zoom_level:
+            self._animate_zoom(target)
 
     def zoom_out(self):
-        self._animate_zoom(max(0.2, self.zoom_level - self.zoom_step))
+        self.animator.cancel("zoom")
+        target = max(0.2, self.zoom_level - self.zoom_step)
+        if target < self.zoom_level:
+            self._animate_zoom(target)
 
     def reset_zoom(self):
         # "100%" resets instantly (center-anchored). Cancel any in-flight +/- ease
@@ -221,16 +235,34 @@ class GraphView(QGraphicsView):
         self.scale(self.zoom_level, self.zoom_level)
 
     def wheelEvent(self, event):
-        # Incremental zoom anchored under the cursor. NEVER resetTransform here:
-        # that would drop the AnchorUnderMouse translation. Scale by the ratio
-        # of the clamped new zoom to the current zoom, and keep zoom_level truthful.
-        self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
-        new_zoom = max(0.2, min(5.0, self.zoom_level * (1.0015 ** event.angleDelta().y())))
+        # Incremental zoom anchored under the cursor. A running button-ease is
+        # snapped first so its ticks can't fight (and visually revert) the wheel.
+        self.animator.cancel("zoom")
+        self._zoom_at_cursor(self.zoom_level * (1.0015 ** event.angleDelta().y()))
+        event.accept()
+
+    def viewportEvent(self, event):
+        # macOS trackpad pinch: native gesture events are delivered to the
+        # viewport, never wheelEvent.
+        if (
+            event.type() == QEvent.Type.NativeGesture
+            and event.gestureType() == Qt.NativeGestureType.ZoomNativeGesture
+        ):
+            self.animator.cancel("zoom")
+            self._zoom_at_cursor(self.zoom_level * (1.0 + event.value()))
+            return True
+        return super().viewportEvent(event)
+
+    def _zoom_at_cursor(self, new_zoom):
+        # NEVER resetTransform here: that would drop the AnchorUnderMouse
+        # translation. Scale by the ratio of the clamped new zoom to the current
+        # zoom, and keep zoom_level truthful.
+        new_zoom = max(0.2, min(5.0, new_zoom))
         factor = new_zoom / self.zoom_level if self.zoom_level else 1.0
+        self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.scale(factor, factor)
         self.zoom_level = new_zoom
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
-        event.accept()
 
     def fit_to_content(self):
         # Fit the graph's bounding box (plus margin) into the viewport, then
@@ -272,11 +304,14 @@ class GraphView(QGraphicsView):
         overlay = getattr(self, "zoom_controls_widget", None)
         if overlay is None:
             return
-        viewport_rect = self.viewport().rect()
+        # The viewport's geometry is expressed in view coordinates (the overlay's
+        # parent), so anchoring against it keeps the overlay inside the visible
+        # canvas even when the view draws a frame.
+        viewport_geo = self.viewport().geometry()
         margin = ZOOM_OVERLAY_MARGIN
-        x = viewport_rect.width() - overlay.width() - margin
-        y = viewport_rect.height() - overlay.height() - margin
-        overlay.move(max(0, x), max(0, y))
+        x = viewport_geo.x() + viewport_geo.width() - overlay.width() - margin
+        y = viewport_geo.y() + viewport_geo.height() - overlay.height() - margin
+        overlay.move(max(viewport_geo.x(), x), max(viewport_geo.y(), y))
         overlay.raise_()
 
     def resizeEvent(self, event: QResizeEvent):
@@ -543,7 +578,10 @@ class GraphView(QGraphicsView):
 
         self.set_graph(graph)
 
-    def set_graph(self, graph):
+    def set_graph(self, graph, fit=True):
+        # ``fit=True`` reframes the viewport around the new content (document
+        # loads); in-place edits pass ``fit=False`` so the user's zoom/pan is
+        # never stomped by an edge tweak, delete, or undo.
         # Flush pending tweens BEFORE swapping the model: a mid-flight layout
         # finalize moves the OLD node items, and their itemChange writes
         # positions through _on_node_moved into self.graph — with the new graph
@@ -625,7 +663,8 @@ class GraphView(QGraphicsView):
 
         self._apply_label_scale()
         self.graph_changed.emit()
-        self.fit_to_content()
+        if fit:
+            self.fit_to_content()
 
     def get_graph(self):
         return self.graph
@@ -662,8 +701,9 @@ class GraphView(QGraphicsView):
 
     def _restore_snapshot(self, snapshot):
         # Rides the existing graph_changed pipeline (controller unload, combos
-        # repopulate, decorations/animations clear) for free.
-        self.set_graph(Graph.from_dict(snapshot))
+        # repopulate, decorations/animations clear) for free. fit=False: undo/redo
+        # must not reframe the viewport the user is working in.
+        self.set_graph(Graph.from_dict(snapshot), fit=False)
 
     def _drag_moved(self, node):
         # A drag counts only if the node's live position differs from the
@@ -743,7 +783,7 @@ class GraphView(QGraphicsView):
                 start_label = self.graph.get_node_label(self.pending_edge_start)
                 end_label = self.graph.get_node_label(node_id)
                 action = "Updated" if updated else "Added"
-                self.set_graph(self.graph)
+                self.set_graph(self.graph, fit=False)
                 self.status_message.emit(
                     f"{action} edge {start_label} {direction} {end_label} ({weight}).",
                     "text",
@@ -757,7 +797,7 @@ class GraphView(QGraphicsView):
 
     def _on_node_moved(self, node_item, new_pos):
         node_id = node_item.node_id
-        if self._snap_to_grid and not self._snapping_node:
+        if self._snap_to_grid and not self._snapping_node and not self._suspend_snap:
             snapped = self._snap_point(new_pos)
             if snapped != new_pos:
                 self._snapping_node = True
@@ -952,7 +992,7 @@ class GraphView(QGraphicsView):
                 continue
 
         # Rebuild the scene once to avoid deleting items mid-paint.
-        self.set_graph(self.graph)
+        self.set_graph(self.graph, fit=False)
         # Diff-guarded: if every removal failed (nothing changed) nothing pushes.
         self._commit_mutation("Delete selection")
 
@@ -1010,6 +1050,17 @@ class GraphView(QGraphicsView):
         self._render_edges(frame)
         self._animate_step_delta(frame)
 
+    def _oriented_curve_path(self, item, source_id):
+        # Edge items for undirected graphs are stored in sorted (start, end)
+        # order, so a relaxation running against that order (source == the item's
+        # END node) would otherwise animate the bolt/comet backwards and land the
+        # impact pop on the wrong end. Reverse the path so pointAtPercent(0) sits
+        # at the relaxation's source.
+        path = item.curve_path()
+        if item.start_node.node_id != source_id:
+            return path.toReversed()
+        return path
+
     def _animate_step_delta(self, frame):
         step = frame.step
         if not step:
@@ -1040,13 +1091,14 @@ class GraphView(QGraphicsView):
                     )
                     impact_color = animation.impact_color or travel_color
                     badge_flash_color = animation.badge_flash_color or impact_color
+                    travel_path = self._oriented_curve_path(item, edge[0])
                     if animation.relax_effect == "lightning":
                         self.animator.lightning(
-                            self.scene, item.curve_path(), travel_color, duration
+                            self.scene, travel_path, travel_color, duration
                         )
                     elif animation.relax_effect == "comet":
                         self.animator.travel_dot(
-                            self.scene, item.curve_path(), travel_color, duration
+                            self.scene, travel_path, travel_color, duration
                         )
                     # The weight number flashes the travel/impact color while it passes.
                     chip = item.label
@@ -1253,13 +1305,23 @@ class GraphView(QGraphicsView):
         # One command per layout: snapshot before positions move, commit once the
         # positions land (immediately for animate=False, in the finalize below for
         # the tween). Diff-guarded, so a layout that changes nothing pushes nothing.
+        # Snap any in-flight layout FIRST so its finalize commits against ITS OWN
+        # snapshot — begin_mutation below must not hand this layout's snapshot to
+        # the older tween's completion (which would also leave this one uncommitted).
+        self.animator.cancel("layout")
         self._begin_mutation()
+        # A computed layout must land on its EXACT coordinates; grid-snapping
+        # every intermediate/final setPos would quantize and stutter it.
+        self._suspend_snap = True
 
         if not animate:
-            for node_id, (x, y) in targets.items():
-                item = self.nodes.get(node_id)
-                if item is not None and not sip.isdeleted(item):
-                    item.setPos(QPointF(x, y))
+            try:
+                for node_id, (x, y) in targets.items():
+                    item = self.nodes.get(node_id)
+                    if item is not None and not sip.isdeleted(item):
+                        item.setPos(QPointF(x, y))
+            finally:
+                self._suspend_snap = False
             self.fit_to_content()
             self.graph_changed.emit()
             self._commit_mutation("Apply layout")
@@ -1282,6 +1344,8 @@ class GraphView(QGraphicsView):
             if completed["done"]:
                 return
             completed["done"] = True
+            # Re-enable snapping only after the exact final positions have landed.
+            self._suspend_snap = False
             self.fit_to_content()
             self.graph_changed.emit()
             self._commit_mutation("Apply layout")

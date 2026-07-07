@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from collections import deque
 from typing import Any, Dict, Iterable
 
@@ -185,10 +186,12 @@ def validate_graph_data(data: Dict[str, Any]) -> list[GraphIssue]:
                 path=path,
             ))
 
-        if not _is_number(weight):
+        if not _is_number(weight) or not math.isfinite(weight):
+            # NaN/inf pass isinstance checks but silently break relaxation
+            # (NaN comparisons are always False), so they are load errors.
             issues.append(_issue(
                 "invalid_weight",
-                "Edge weight must be numeric.",
+                "Edge weight must be a finite number.",
                 "error",
                 path=f"{path}.weight",
             ))

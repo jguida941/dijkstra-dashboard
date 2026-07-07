@@ -98,6 +98,11 @@ class AStarAlgorithm(PathfindingAlgorithm):
         adjacency = graph.to_adjacency_dict()
         if start not in adjacency:
             raise AlgorithmError(f"Start node '{start}' not found.")
+        if target not in adjacency:
+            # Guard here (unlike Dijkstra's tolerant miss) because the heuristic
+            # needs the target's position; a raw lookup would raise ValueError
+            # past the UI's AlgorithmError handler.
+            raise AlgorithmError(f"Target node '{target}' not found.")
 
         scale = self._heuristic_scale(graph)
 

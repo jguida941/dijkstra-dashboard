@@ -235,3 +235,21 @@ def test_display_font_returns_requested_point_size(qapp):
 
     assert font.pointSize() == 13
     assert isinstance(font.family(), str)
+
+
+@pytest.mark.ui
+def test_color_resolves_muted_role_to_muted_text():
+    # Narration emits role "muted"; the Theme field is named muted_text. The
+    # role must resolve to the dimmed color, not fall through to primary text.
+    for built_in in ThemeManager.BUILTIN_THEMES.values():
+        assert built_in.color("muted") == QColor(built_in.muted_text)
+
+
+@pytest.mark.ui
+def test_qss_import_parses_percent_rgb_colors():
+    overrides = parse_qss_theme_overrides(
+        "QWidget { background-color: rgb(100%, 0%, 0%); color: rgba(0, 255, 0, 50%); }"
+    )
+    top = overrides["theme"]
+    assert top["base_bg"] == "#ff0000"
+    assert top["text"] == "#8000ff00"

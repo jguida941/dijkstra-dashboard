@@ -477,3 +477,68 @@ def test_empty_name_on_save_is_rejected_inline(qapp):
         assert dialog._error_label.text()
     finally:
         dialog.reject()
+
+
+@pytest.mark.ui
+def test_delete_saved_theme_mid_preview_leaves_real_theme(qapp):
+    # H1: deleting a saved theme while a live preview is active must not strand
+    # the throwaway custom-preview theme as the current/registered theme.
+    manager = get_theme_manager()
+    creator = ThemeEditorDialog()
+    creator._name_edit.setText("Ocean")
+    creator._set_color(("accent",), "#0088cc")
+    creator._on_save()
+    assert manager.current.id == "ocean"
+
+    editor = ThemeEditorDialog()
+    editor._set_color(("accent",), "#123456")  # dirties -> schedules preview
+    editor._flush_preview()                      # preview is now the live theme
+    assert manager.current.id == PREVIEW_THEME_ID
+
+    editor._delete_saved_theme()
+
+    assert manager.current.id != PREVIEW_THEME_ID
+    assert PREVIEW_THEME_ID not in manager.theme_ids()
+    assert manager.current.id in manager.theme_ids()
+    assert "ocean" not in manager.theme_ids()
+
+
+@pytest.mark.ui
+def test_save_does_not_clobber_existing_custom_theme(qapp):
+    # M2: a new theme whose name slugifies onto an existing CUSTOM theme must
+    # fork to -2, not silently overwrite it (built-ins already do this).
+    manager = get_theme_manager()
+    first = ThemeEditorDialog()
+    first._name_edit.setText("Ocean")
+    first._set_color(("accent",), "#010203")
+    first._on_save()
+    assert manager.THEMES["ocean"].accent == "#010203"
+
+    manager.set_theme("neon-dark", persist=False)
+    second = ThemeEditorDialog()
+    second._name_edit.setText("Ocean")            # same name, different content
+    second._set_color(("accent",), "#0a0b0c")
+    assert second._current_slug() == "ocean-2"
+    second._on_save()
+
+    assert manager.THEMES["ocean"].accent == "#010203"   # original untouched
+    assert manager.THEMES["ocean-2"].accent == "#0a0b0c"
+
+
+@pytest.mark.ui
+def test_import_updates_reset_baseline(qapp):
+    # L2: after importing a theme, "Reset section" must revert to the IMPORTED
+    # values, not the theme the editor happened to open on.
+    manager = get_theme_manager()
+    manager.set_theme("neon-dark", persist=False)
+    dialog = ThemeEditorDialog()
+
+    imported = theme_to_dict(ThemeManager.BUILTIN_THEMES["paper-light"])
+    imported["id"] = "imported-theme"
+    imported["name"] = "Imported Theme"
+    assert dialog._load_theme_data(imported)
+
+    dialog._set_color(("accent",), "#ff00ff")
+    dialog._reset_category("Canvas & Chrome")
+
+    assert dialog._working["accent"] == imported["accent"]  # paper-light accent, not neon

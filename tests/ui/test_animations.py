@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import pytest
 from PyQt6.QtCore import QPoint, QPointF, Qt
-from PyQt6.QtGui import QPainterPath, QWheelEvent
+from PyQt6.QtGui import QNativeGestureEvent, QPainterPath, QPointingDevice, QWheelEvent
 from PyQt6.QtWidgets import QGraphicsScene, QPushButton
 
 from dijkstra_dashboard.ui.animations import AnimationCoordinator
@@ -125,17 +125,108 @@ def test_zoom_overlay_keeps_clearance_from_view_edges(qapp, qtbot):
     view._anchor_zoom_overlay()
 
     overlay = view.zoom_controls_widget.geometry()
-    viewport_rect = view.viewport().rect()
-    assert view.zoom_controls_widget.parent() == view.viewport()
-    assert viewport_rect.width() - overlay.right() >= ZOOM_OVERLAY_MARGIN
-    assert viewport_rect.height() - overlay.bottom() >= ZOOM_OVERLAY_MARGIN
+    # Parented to the view (not the viewport) so panning cannot drag it along;
+    # both geometries below are in view coordinates.
+    viewport_geo = view.viewport().geometry()
+    assert view.zoom_controls_widget.parent() is view
+    assert viewport_geo.x() + viewport_geo.width() - (overlay.x() + overlay.width()) >= ZOOM_OVERLAY_MARGIN
+    assert viewport_geo.y() + viewport_geo.height() - (overlay.y() + overlay.height()) >= ZOOM_OVERLAY_MARGIN
 
     for button in view.zoom_controls_widget.findChildren(QPushButton):
         button_bottom = view.zoom_controls_widget.y() + button.geometry().bottom()
-        assert viewport_rect.height() - button_bottom >= ZOOM_OVERLAY_MARGIN
+        assert viewport_geo.y() + viewport_geo.height() - button_bottom >= ZOOM_OVERLAY_MARGIN
         assert button.geometry().top() >= ZOOM_OVERLAY_PADDING
         assert button.geometry().left() >= ZOOM_OVERLAY_PADDING
         assert view.zoom_controls_widget.height() - button.geometry().bottom() >= ZOOM_OVERLAY_PADDING
+
+
+def test_zoom_overlay_stays_anchored_while_panning(qapp, qtbot):
+    # The overlay must NOT ride along with the canvas: QGraphicsView scrolls the
+    # viewport's child widgets, so the overlay is parented to the view itself.
+    view = GraphView()
+    qtbot.addWidget(view)
+    view.resize(800, 600)
+    view.show()
+    view._anchor_zoom_overlay()
+
+    before = view.zoom_controls_widget.pos()
+    # Pan exactly like the drag-pan handler does: scrollbar deltas.
+    view.horizontalScrollBar().setValue(view.horizontalScrollBar().value() + 120)
+    view.verticalScrollBar().setValue(view.verticalScrollBar().value() + 80)
+
+    assert view.zoom_controls_widget.pos() == before
+
+
+def test_zoom_buttons_step_full_increment_even_mid_ease(qapp):
+    # Two rapid + clicks must advance two full steps; the second click snaps the
+    # in-flight ease before computing its target instead of reading a mid-tween
+    # zoom_level.
+    view = GraphView()
+    view.reset_zoom()
+
+    view.zoom_in()
+    view.zoom_in()
+    view.animator.cancel_all()  # finalize -> zoom_level lands on the target
+
+    assert view.zoom_level == pytest.approx(1.4)
+
+
+def test_zoom_buttons_never_move_opposite_past_clamp(qapp):
+    # fit_to_content can leave zoom_level outside [0.2, 5.0]; +/- must then be
+    # no-ops rather than snapping the wrong way to the clamp bound.
+    view = GraphView()
+
+    view.zoom_level = 6.0
+    view.zoom_in()
+    view.animator.cancel_all()
+    assert view.zoom_level == pytest.approx(6.0)
+
+    view.zoom_level = 0.1
+    view.zoom_out()
+    view.animator.cancel_all()
+    assert view.zoom_level == pytest.approx(0.1)
+
+
+def test_pinch_native_gesture_zooms(qapp, qtbot):
+    view = GraphView()
+    qtbot.addWidget(view)
+    view.resize(800, 600)
+    view.show()
+    view.reset_zoom()
+
+    event = QNativeGestureEvent(
+        Qt.NativeGestureType.ZoomNativeGesture,
+        QPointingDevice.primaryPointingDevice(),
+        QPointF(400, 300),
+        QPointF(400, 300),
+        QPointF(400, 300),
+        0.5,
+        0,
+        0,
+    )
+    handled = view.viewportEvent(event)
+
+    assert handled is True
+    assert view.zoom_level == pytest.approx(1.5)
+    assert view.transform().m11() == pytest.approx(1.5)
+
+
+def test_delete_selection_keeps_viewport_zoom(qapp, qtbot):
+    # In-place edits (delete/add edge/undo) must not re-fit and stomp the
+    # user's zoom; only document loads reframe.
+    view = GraphView()
+    qtbot.addWidget(view)
+    view.resize(800, 600)
+    view.show()
+    view.reset_zoom()
+    view.zoom_level = 2.0
+    view.set_zoom()
+
+    node = next(iter(view.nodes.values()))
+    view._delete_items([], [node])
+
+    assert view.transform().m11() == pytest.approx(2.0)
+    assert view.zoom_level == pytest.approx(2.0)
 
 
 def test_node_clamps_against_big_scene_rect(qapp):
@@ -310,3 +401,27 @@ def test_lightning_items_removed_on_cancel(qapp):
     coordinator.cancel_all()
     assert len(scene.items()) == baseline
     assert coordinator._registry == {}
+
+
+def test_relax_travel_path_follows_relaxation_direction(qapp):
+    # For an undirected edge stored sorted (A,B), a relaxation FROM B TO A must
+    # animate the bolt/comet B->A, not in the stored A->B orientation.
+    view = GraphView()
+    (a, b), item = next(iter(view.edges.items()))
+    assert item.start_node.node_id == a  # undirected items are stored sorted
+
+    # Relaxation source = b (the item's END node): the oriented path must start
+    # nearer b and end nearer a.
+    path = view._oriented_curve_path(item, b)
+    start = path.pointAtPercent(0.0)
+    end = path.pointAtPercent(1.0)
+
+    def near(pt, node_id):
+        return (pt - view.nodes[node_id].pos()).manhattanLength()
+
+    assert near(start, b) < near(start, a)
+    assert near(end, a) < near(end, b)
+
+    # And the natural orientation (source = start node) is unchanged.
+    natural = view._oriented_curve_path(item, a)
+    assert near(natural.pointAtPercent(0.0), a) < near(natural.pointAtPercent(0.0), b)

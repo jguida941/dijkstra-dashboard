@@ -325,6 +325,12 @@ class ThemeEditorDialog(QDialog):
     def _slugify(self, name):
         base = re.sub(r"[^a-z0-9]+", "-", (name or "").strip().lower()).strip("-") or "custom"
         reserved = set(self._manager.BUILTIN_THEMES) | {PREVIEW_THEME_ID}
+        # Also avoid silently clobbering another EXISTING custom theme; only the
+        # theme this editor was opened on (``_original_id``) may keep its own id
+        # so re-saving updates in place instead of forking to ``-2``.
+        for theme_id in self._manager.theme_ids():
+            if theme_id not in reserved and theme_id != self._original_id:
+                reserved.add(theme_id)
         return f"{base}-2" if base in reserved else base
 
     def _current_slug(self):
@@ -831,6 +837,10 @@ class ThemeEditorDialog(QDialog):
             return False
 
         self._working = theme_to_dict(theme)
+        # Rebase the reset/none-restore baseline onto the imported theme, so
+        # "Reset section" reverts to what was just imported, not the theme the
+        # editor happened to open on.
+        self._seed = copy.deepcopy(self._working)
         self._name_edit.blockSignals(True)
         self._name_edit.setText(theme.name)
         self._name_edit.blockSignals(False)
@@ -993,6 +1003,10 @@ class ThemeEditorDialog(QDialog):
             self._show_error("Only saved custom themes can be deleted.")
             return
         self._preview_timer.stop()
+        # Leave the throwaway live-preview theme and restore the opened theme
+        # FIRST; otherwise deleting while a preview is active would strand
+        # ``custom-preview`` as the current theme (and keep it registered).
+        self._restore_original()
         self._manager.delete_custom_theme(theme_id)
         self._saved = True
         self.accept()

@@ -74,3 +74,42 @@ def test_export_svg_writes_xml_file(qapp, tmp_path):
     data = out.read_bytes()
     assert len(data) > 0
     assert data.lstrip().startswith(b"<?xml")
+
+
+def _selectable_scene():
+    scene = _scene_with_items()
+    for item in scene.items():
+        item.setFlag(item.GraphicsItemFlag.ItemIsSelectable, True)
+    return scene
+
+
+def test_export_png_omits_selection_chrome_and_restores_selection(qapp, tmp_path):
+    # Selection rings are editor chrome, not graph data: an export taken with a
+    # selected item must be pixel-identical to one taken with nothing selected,
+    # and the user's selection must survive the export.
+    scene = _selectable_scene()
+    clean = tmp_path / "clean.png"
+    assert export_scene_png(scene, str(clean)) is True
+
+    item = next(iter(scene.items()))
+    item.setSelected(True)
+    selected = tmp_path / "selected.png"
+    assert export_scene_png(scene, str(selected)) is True
+
+    assert item.isSelected()
+    assert clean.read_bytes() == selected.read_bytes()
+
+
+@pytest.mark.skipif(not HAS_SVG, reason="QtSvg unavailable")
+def test_export_svg_omits_selection_chrome_and_restores_selection(qapp, tmp_path):
+    scene = _selectable_scene()
+    clean = tmp_path / "clean.svg"
+    assert export_scene_svg(scene, str(clean)) is True
+
+    item = next(iter(scene.items()))
+    item.setSelected(True)
+    selected = tmp_path / "selected.svg"
+    assert export_scene_svg(scene, str(selected)) is True
+
+    assert item.isSelected()
+    assert clean.read_bytes() == selected.read_bytes()

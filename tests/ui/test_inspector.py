@@ -288,3 +288,26 @@ def test_inspector_fonts_scale_with_window(qapp, qtbot):
     assert edge.label._font.pointSize() > base_edge_label
     assert window.inspector.table.font().pointSize() > 0
     window.close()
+
+
+@pytest.mark.ui
+def test_reset_clears_distance_table_and_pseudocode(qapp):
+    # M1/L3: Reset must drop the run-specific inspector views (rows + header),
+    # not just the narration, or the table/graph disagree after Reset.
+    from dijkstra_dashboard.ui.main_window import MainWindow
+
+    window = MainWindow()
+    graph = window.graph_view.get_graph()
+    ids = graph.get_nodes()
+    combo = window.controls_panel.algorithm_combo
+    combo.setCurrentIndex(combo.findData("bfs"))
+    window.start_visualization()
+    window.playback.seek(window.playback.total)
+    assert window.inspector.table.rowCount() > 0
+
+    window.reset_visualization()
+
+    assert window.inspector.table.rowCount() == 0
+    header = window.inspector.table.horizontalHeaderItem(1).text()
+    assert header == "Distance"  # no stale "Distance (hops)" from BFS
+    window.close()

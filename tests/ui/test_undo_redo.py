@@ -471,3 +471,34 @@ def test_edit_menu_between_file_and_view_with_undo_redo(qtbot, tmp_path):
     redo_action = _action(edit_menu, "Redo")
     assert undo_action.shortcut() == QKeySequence(QKeySequence.StandardKey.Undo)
     assert redo_action.shortcut() == QKeySequence(QKeySequence.StandardKey.Redo)
+
+
+# --------------------------------------------------------------------------
+# Overlapping animated layouts: each tween commits against ITS OWN snapshot
+# --------------------------------------------------------------------------
+def test_overlapping_layouts_push_two_correct_commands(qapp, qtbot):
+    view = _view_with_stack(qtbot)
+    original = view.graph.to_dict()
+    node_ids = list(view.nodes.keys())
+
+    first = {node_id: (float(60 * i), 0.0) for i, node_id in enumerate(node_ids)}
+    second = {node_id: (0.0, float(60 * i)) for i, node_id in enumerate(node_ids)}
+
+    # Start layout 2 while layout 1's tween is still in flight. Layout 1 must
+    # finalize + commit against its own snapshot; layout 2 gets a fresh one.
+    view.apply_layout(first, animate=True, duration=200)
+    view.apply_layout(second, animate=True, duration=200)
+    view.animator.cancel_all()  # finalize -> both layouts land + commit
+
+    assert view.undo_stack.count() == 2
+    for node_id, (x, y) in second.items():
+        assert view.graph.to_dict()["nodes"][node_id]["x"] == pytest.approx(x)
+        assert view.graph.to_dict()["nodes"][node_id]["y"] == pytest.approx(y)
+
+    view.undo_stack.undo()
+    for node_id, (x, y) in first.items():
+        assert view.graph.to_dict()["nodes"][node_id]["x"] == pytest.approx(x)
+        assert view.graph.to_dict()["nodes"][node_id]["y"] == pytest.approx(y)
+
+    view.undo_stack.undo()
+    assert view.graph.to_dict() == original

@@ -15,6 +15,8 @@ NODE_STATES = ("default", "frontier", "current", "visited", "final", "not_in_pat
 EDGE_STATES = ("default", "considered", "relaxed", "final", "not_in_path", "unreachable")
 NODE_STATE_ALIASES = {"idle": "default", "unused": "not_in_path"}
 EDGE_STATE_ALIASES = {"idle": "default", "unused": "not_in_path", "visited": "relaxed"}
+#: Narration/status roles that don't match a Theme field name 1:1.
+COLOR_ROLE_ALIASES = {"muted": "muted_text"}
 RELAX_EFFECTS = ("lightning", "comet", "none")
 FINAL_REVEALS = ("stagger", "instant")
 
@@ -130,7 +132,7 @@ class Theme:
     def color(self, role: str) -> QColor:
         if role.startswith("#"):
             return QColor(role)
-        value = getattr(self, role, self.text)
+        value = getattr(self, COLOR_ROLE_ALIASES.get(role, role), self.text)
         if not isinstance(value, str):
             value = self.text
         return QColor(value)
@@ -882,14 +884,24 @@ def _qss_color_to_hex(value: str) -> str | None:
         parts = [p.strip() for p in inner.replace("/", ",").split(",")]
         if len(parts) < 3:
             return None
+        def channel(text: str) -> int:
+            text = text.strip()
+            if text.endswith("%"):
+                return round(float(text[:-1]) * 255.0 / 100.0)
+            return int(float(text))
+
         try:
-            red = int(float(parts[0].rstrip("%")))
-            green = int(float(parts[1].rstrip("%")))
-            blue = int(float(parts[2].rstrip("%")))
+            red = channel(parts[0])
+            green = channel(parts[1])
+            blue = channel(parts[2])
             alpha = 255
             if len(parts) >= 4:
-                alpha_raw = float(parts[3])
-                alpha = round(alpha_raw * 255) if alpha_raw <= 1 else round(alpha_raw)
+                alpha_text = parts[3].strip()
+                if alpha_text.endswith("%"):
+                    alpha = round(float(alpha_text[:-1]) * 255.0 / 100.0)
+                else:
+                    alpha_raw = float(alpha_text)
+                    alpha = round(alpha_raw * 255) if alpha_raw <= 1 else round(alpha_raw)
         except ValueError:
             return None
         color = QColor(

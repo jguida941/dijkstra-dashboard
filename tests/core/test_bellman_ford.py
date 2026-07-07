@@ -108,3 +108,12 @@ def test_bf_line_map_and_registry(sample_graph, negative_cycle_graph, disconnect
     algo = create_algorithm("bellman-ford")
     assert isinstance(algo, BellmanFordAlgorithm)
     assert "bellman-ford" in {spec.name for spec in list_algorithm_specs()}
+
+
+def test_bf_undirected_negative_edge_error_mentions_directed_mode(negative_weight_graph):
+    # On an undirected graph every negative edge is a two-node negative cycle,
+    # so the error must explain the fix (Directed mode) instead of a bare
+    # "Negative cycle detected." that reads like a solver failure.
+    algo = BellmanFordAlgorithm()
+    with pytest.raises(AlgorithmError, match="Directed mode"):
+        algo.solve(negative_weight_graph, {"start": "A", "target": "C"})

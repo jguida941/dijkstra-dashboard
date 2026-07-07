@@ -178,6 +178,9 @@ class PlaybackController(QObject):
 
         self.frame_changed.emit(self._make_frame(forward_step=False))
         if self._index == self.total:
+            # Mirror step_forward: reaching the end stops autoplay, otherwise the
+            # timer keeps firing no-op steps and the Play button sticks on "Pause".
+            self.pause()
             self._emit_finish()
 
     def set_interval(self, ms: int) -> None:

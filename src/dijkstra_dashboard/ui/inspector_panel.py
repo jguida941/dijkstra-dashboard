@@ -102,9 +102,13 @@ class InspectorPanel(QWidget):
         self.pseudocode.setFont(mono)
 
     def clear_run_views(self):
-        """Drop run-specific content when the graph changes: stale table rows
-        and the pseudocode highlight. Narration scrollback is kept as history."""
+        """Drop run-specific content when the graph changes: stale table rows,
+        the algorithm-specific distance header, and the pseudocode highlight.
+        Narration scrollback is kept as history."""
         self.table.setRowCount(0)
+        # Reset the header so an empty table never keeps a stale, algorithm-
+        # specific label ("Distance (hops)" after BFS, "g (tentative)" after A*).
+        self.table.set_distance_header(None)
         self.pseudocode.highlight_step([])
 
     def _rebuild_legend(self, theme):

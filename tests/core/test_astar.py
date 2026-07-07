@@ -91,3 +91,11 @@ def test_astar_line_map_and_registry(positioned_graph, sample_graph, disconnecte
     algo = create_algorithm("astar")
     assert isinstance(algo, AStarAlgorithm)
     assert "astar" in {spec.name for spec in list_algorithm_specs()}
+
+
+def test_astar_unknown_target_raises_algorithm_error(positioned_graph):
+    # A missing target must surface as AlgorithmError (caught by the UI), not
+    # a raw ValueError from the heuristic's position lookup.
+    algo = AStarAlgorithm()
+    with pytest.raises(AlgorithmError, match="Target node 'ZZZ' not found"):
+        algo.solve(positioned_graph, {"start": "A", "target": "ZZZ"})

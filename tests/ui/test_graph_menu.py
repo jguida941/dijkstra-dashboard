@@ -399,3 +399,43 @@ def test_circle_layout_action_runs_and_keeps_nodes_in_extent(qapp, qtbot, tmp_pa
         assert abs(x) <= LAYOUT_HALF_W
         assert abs(y) <= LAYOUT_HALF_H
     window.close()
+
+
+# ---- View menu zoom shortcuts ----------------------------------------------
+def test_view_menu_zoom_shortcuts_wired(qapp, tmp_path):
+    from PyQt6.QtGui import QKeySequence
+
+    window = MainWindow(settings=_ini_settings(tmp_path))
+    try:
+        zoom_in_keys = window.zoom_in_action.shortcuts()
+        assert QKeySequence("Ctrl+=") in zoom_in_keys
+        assert window.reset_zoom_action.shortcut() == QKeySequence("Ctrl+0")
+        assert window.fit_action.shortcut() == QKeySequence("Ctrl+Shift+0")
+        # Zoom out uses the platform standard binding(s).
+        assert window.zoom_out_action.shortcuts() == QKeySequence.keyBindings(
+            QKeySequence.StandardKey.ZoomOut
+        )
+    finally:
+        window.close()
+
+
+def test_layout_ignores_snap_to_grid(qapp, tmp_path):
+    # L1: a computed layout must land on its EXACT coordinates even with
+    # Snap-to-Grid enabled (snapping is suspended during layout application).
+    window = MainWindow(settings=_ini_settings(tmp_path))
+    view = window.graph_view
+    view.set_grid_size(40)
+    view.set_snap_to_grid(True)
+
+    node_ids = view.get_graph().get_nodes()
+    # Deliberately off-grid targets (not multiples of 40).
+    targets = {n: (float(17 + i * 53), float(29 - i * 11)) for i, n in enumerate(node_ids)}
+    view.apply_layout(targets, animate=False)
+
+    for n, (x, y) in targets.items():
+        pos = view.nodes[n].pos()
+        assert pos.x() == pytest.approx(x)
+        assert pos.y() == pytest.approx(y)
+    # Snapping is restored afterward for ordinary drags.
+    assert view._suspend_snap is False
+    window.close()

@@ -78,6 +78,9 @@ class MainWindow(QMainWindow):
         self._header_written = False
         self._graph_version = 0
         self._summaries = {}
+        # A fold error is narrated once by describe_summary (on_run_finished);
+        # the paired run_error that follows must not narrate it a second time.
+        self._narrated_error = None
 
         # Create central widget and layout
         central_widget = QWidget()
@@ -300,20 +303,34 @@ class MainWindow(QMainWindow):
 
         view_menu.addSeparator()
         zoom_in_action = QAction("Zoom In", self)
+        # Platform ZoomIn is Ctrl/Cmd+Plus, which needs Shift on most layouts;
+        # Ctrl/Cmd+= is the un-shifted key everyone actually presses.
+        zoom_in_shortcuts = QKeySequence.keyBindings(QKeySequence.StandardKey.ZoomIn)
+        extra = QKeySequence("Ctrl+=")
+        if all(seq != extra for seq in zoom_in_shortcuts):
+            zoom_in_shortcuts.append(extra)
+        zoom_in_action.setShortcuts(zoom_in_shortcuts)
         zoom_in_action.triggered.connect(self.graph_view.zoom_in)
         view_menu.addAction(zoom_in_action)
 
         zoom_out_action = QAction("Zoom Out", self)
+        zoom_out_action.setShortcuts(QKeySequence.StandardKey.ZoomOut)
         zoom_out_action.triggered.connect(self.graph_view.zoom_out)
         view_menu.addAction(zoom_out_action)
 
         reset_zoom_action = QAction("Reset Zoom", self)
+        reset_zoom_action.setShortcut(QKeySequence("Ctrl+0"))
         reset_zoom_action.triggered.connect(self.graph_view.reset_zoom)
         view_menu.addAction(reset_zoom_action)
 
         fit_action = QAction("Fit to Graph", self)
+        fit_action.setShortcut(QKeySequence("Ctrl+Shift+0"))
         fit_action.triggered.connect(self.graph_view.fit_to_content)
         view_menu.addAction(fit_action)
+        self.zoom_in_action = zoom_in_action
+        self.zoom_out_action = zoom_out_action
+        self.reset_zoom_action = reset_zoom_action
+        self.fit_action = fit_action
 
         view_menu.addSeparator()
         self.show_labels_action = QAction("Show Distance Labels", self)
@@ -565,6 +582,9 @@ class MainWindow(QMainWindow):
         self.graph_view.clear_run_decorations()
         self.controls_panel.clear_timeline()
         self.inspector.clear_all()
+        # Reset also drops the run-specific inspector views (distance rows +
+        # pseudocode highlight); otherwise the table/graph disagree after Reset.
+        self.inspector.clear_run_views()
         self._header_written = False
         self._algo_class = None
         self._algo_name = None
@@ -631,6 +651,12 @@ class MainWindow(QMainWindow):
         self.controls_panel.play_button.setText("Pause" if playing else "Play")
 
     def on_run_error(self, message):
+        # When this error was just narrated by the finishing summary, only raise
+        # the notice banner — don't append the same red line to the log twice.
+        if message and message == self._narrated_error:
+            self._narrated_error = None
+            self.on_message_changed(message)
+            return
         self.inspector.update_status(message, "error")
         self.on_message_changed(message)
 
@@ -638,6 +664,8 @@ class MainWindow(QMainWindow):
         label_of = self.graph_view.label_lookup
         for text, role in describe_summary(summary, label_of):
             self.inspector.narration.append_line(text, role)
+        # Remember the error just narrated so the paired run_error only banners it.
+        self._narrated_error = summary.get("error")
         if not summary.get("path"):
             self.on_message_changed("No path found.")
 
@@ -664,7 +692,7 @@ class MainWindow(QMainWindow):
         # pushes nothing.
         self.graph_view._begin_mutation()
         graph.set_directed(bool(checked))
-        self.graph_view.set_graph(graph)
+        self.graph_view.set_graph(graph, fit=False)
         self.graph_view._commit_mutation("Toggle directed")
         if self.inspector:
             if checked:
@@ -939,6 +967,9 @@ class MainWindow(QMainWindow):
             return
         if not path.lower().endswith(".png"):
             path = f"{path}.png"
+        # Flush transient effects (travel dots, bolts) so they can't bake into
+        # the image or inflate the export bounds.
+        self.graph_view.animator.cancel_all()
         if export_scene_png(self.graph_view.scene, path):
             if self.inspector:
                 self.inspector.update_status(f"Exported PNG: {path}")
@@ -956,6 +987,7 @@ class MainWindow(QMainWindow):
             return
         if not path.lower().endswith(".svg"):
             path = f"{path}.svg"
+        self.graph_view.animator.cancel_all()
         if export_scene_svg(self.graph_view.scene, path):
             if self.inspector:
                 self.inspector.update_status(f"Exported SVG: {path}")
