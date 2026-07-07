@@ -173,6 +173,52 @@ def test_pasted_qss_import_updates_working_theme_and_export_preview(qapp):
 
 
 @pytest.mark.ui
+def test_pasted_qss_saves_without_pressing_import_button(qapp):
+    manager = get_theme_manager()
+    manager.set_theme("neon-dark", persist=False)
+    window = MainWindow()
+    qss = """
+QWidget {
+    background-color: #5B4D43;
+    color: #F9E1C2;
+    border: 1px solid #302F30;
+}
+QPushButton {
+    background-color: #8E745D;
+    color: #F9E1C2;
+    border: 1px solid #302F30;
+    padding: 5px;
+    border-radius: 3px;
+}
+""".strip()
+
+    dialog = ThemeEditorDialog(window)
+    try:
+        dialog._name_edit.setText("Paste Save QSS")
+        dialog._qss_paste.setPlainText(qss)
+        dialog._flush_preview()
+
+        assert manager.current.id == PREVIEW_THEME_ID
+        assert manager.current.custom_qss == qss
+        assert "background-color: #5B4D43" in qapp.styleSheet()
+
+        dialog._on_save()
+
+        path = custom_theme_dir() / "paste-save-qss.json"
+        data = json.loads(path.read_text(encoding="utf-8"))
+        assert data["custom_qss"] == qss
+        assert data["base_bg"] == "#5b4d43"
+        assert data["button_bg"] == "#8e745d"
+        assert manager.current.id == "paste-save-qss"
+        assert manager.current.custom_qss == qss
+        assert "background-color: #5B4D43" in qapp.styleSheet()
+    finally:
+        if dialog.result() != int(dialog.DialogCode.Accepted):
+            dialog.reject()
+        window.close()
+
+
+@pytest.mark.ui
 def test_clear_custom_qss_removes_saved_stylesheet_layer(qapp):
     dialog = ThemeEditorDialog()
     try:

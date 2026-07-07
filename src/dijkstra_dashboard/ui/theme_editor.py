@@ -265,10 +265,38 @@ class ThemeEditorDialog(QDialog):
     def _mark_dirty(self):
         self._preview_timer.start()
 
+    def _on_qss_paste_changed(self):
+        self._sync_qss_paste_to_working(parse=False, show_errors=False)
+
+    def _sync_qss_paste_to_working(self, parse=False, show_errors=False):
+        if self._qss_paste is None:
+            return True
+        text = self._qss_paste.toPlainText().strip()
+        if text == self._working.get("custom_qss", "") and not parse:
+            return True
+
+        if parse and text:
+            try:
+                overrides = parse_qss_theme_overrides(text)
+            except ValueError as exc:
+                if show_errors:
+                    self._show_error(f"Could not import pasted QSS: {exc}")
+                return False
+            for key, value in overrides.get("theme", {}).items():
+                self._working[key] = value
+            for key, value in overrides.get("app_style", {}).items():
+                self._working["app_style"][key] = value
+        else:
+            self._working["custom_qss"] = text
+
+        self._mark_dirty()
+        return True
+
     # ------------------------------------------------------------------
     # Live preview
     # ------------------------------------------------------------------
     def _apply_preview(self):
+        self._sync_qss_paste_to_working(parse=False, show_errors=False)
         preview_data = dict(self._working)
         preview_data["id"] = PREVIEW_THEME_ID
         try:
@@ -586,6 +614,7 @@ class ThemeEditorDialog(QDialog):
         self._qss_paste.setPlaceholderText(
             "Paste a Qt stylesheet (QSS) here. It will be saved with this theme and parsed into editable colors where possible."
         )
+        self._qss_paste.textChanged.connect(self._on_qss_paste_changed)
         qss_paste_layout.addWidget(self._qss_paste, stretch=1)
         qss_paste_buttons = QHBoxLayout()
         apply_qss_button = QPushButton("Import pasted QSS")
@@ -885,22 +914,12 @@ class ThemeEditorDialog(QDialog):
     def _apply_pasted_qss(self):
         if self._qss_paste is None:
             return False
-        text = self._qss_paste.toPlainText().strip()
-        if not text:
+        if not self._qss_paste.toPlainText().strip():
             self._show_error("Paste a Qt stylesheet first.")
             return False
-        try:
-            overrides = parse_qss_theme_overrides(text)
-        except ValueError as exc:
-            self._show_error(f"Could not import pasted QSS: {exc}")
+        if not self._sync_qss_paste_to_working(parse=True, show_errors=True):
             return False
-
-        for key, value in overrides.get("theme", {}).items():
-            self._working[key] = value
-        for key, value in overrides.get("app_style", {}).items():
-            self._working["app_style"][key] = value
         self._refresh_all_widgets()
-        self._mark_dirty()
         self._show_error("")
         return True
 
@@ -976,6 +995,8 @@ class ThemeEditorDialog(QDialog):
         name = self._name_edit.text().strip()
         if not name:
             self._show_error("Theme name cannot be empty.")
+            return
+        if not self._sync_qss_paste_to_working(parse=True, show_errors=True):
             return
         slug = self._current_slug()
         save_data = dict(self._working)
