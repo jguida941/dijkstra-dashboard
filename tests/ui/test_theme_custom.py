@@ -130,6 +130,30 @@ def test_unregister_builtin_is_refused():
 
 
 @pytest.mark.ui
+def test_delete_custom_theme_removes_file_registry_and_falls_back_when_active():
+    manager = ThemeManager()
+    theme = _make_custom(theme_id="delete-me", name="Delete Me")
+    path = manager.save_custom_theme(theme)
+    manager.set_theme("delete-me", persist=False)
+
+    manager.delete_custom_theme("delete-me")
+
+    assert not path.exists()
+    assert "delete-me" not in manager.theme_ids()
+    assert manager.current.id == "neon-dark"
+
+
+@pytest.mark.ui
+def test_delete_custom_theme_refuses_builtin():
+    manager = ThemeManager()
+
+    with pytest.raises(ValueError):
+        manager.delete_custom_theme("neon-dark")
+
+    assert "neon-dark" in manager.theme_ids()
+
+
+@pytest.mark.ui
 def test_load_custom_themes_skips_invalid_files():
     seed = ThemeManager()
     seed.save_custom_theme(_make_custom(theme_id="valid-one", name="Valid One"))

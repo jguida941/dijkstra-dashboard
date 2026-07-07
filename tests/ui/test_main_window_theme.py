@@ -1,8 +1,9 @@
 import pytest
 from PyQt6.QtGui import QColor, QPalette
+from PyQt6.QtWidgets import QInputDialog, QMessageBox
 
 from dijkstra_dashboard.ui.main_window import MainWindow
-from dijkstra_dashboard.ui.theme import get_theme_manager
+from dijkstra_dashboard.ui.theme import custom_theme_dir, get_theme_manager, theme_from_dict
 
 
 @pytest.mark.ui
@@ -53,6 +54,32 @@ def test_view_theme_menu_has_exclusive_three_theme_actions(qapp):
     assert [action.text() for action in actions] == ["Neon Dark", "Midnight", "Paper Light"]
     assert actions[0].isChecked()
 
+    window.close()
+
+
+@pytest.mark.ui
+def test_view_delete_custom_theme_action_removes_saved_theme(qapp, monkeypatch):
+    manager = get_theme_manager()
+    manager.save_custom_theme(theme_from_dict({"id": "menu-delete", "name": "Menu Delete"}))
+    manager.set_theme("menu-delete", persist=False)
+    window = MainWindow()
+
+    monkeypatch.setattr(
+        QInputDialog,
+        "getItem",
+        lambda *args, **kwargs: ("Menu Delete (menu-delete)", True),
+    )
+    monkeypatch.setattr(
+        QMessageBox,
+        "question",
+        lambda *args, **kwargs: QMessageBox.StandardButton.Yes,
+    )
+
+    window.delete_custom_theme()
+
+    assert "menu-delete" not in manager.theme_ids()
+    assert not (custom_theme_dir() / "menu-delete.json").exists()
+    assert manager.current.id == "neon-dark"
     window.close()
 
 

@@ -175,6 +175,28 @@ def test_save_creates_file_grows_menu_and_switches_current(qapp):
 
 
 @pytest.mark.ui
+def test_theme_editor_delete_saved_custom_theme_removes_file_and_accepts(qapp):
+    manager = get_theme_manager()
+    dialog = ThemeEditorDialog()
+    dialog._name_edit.setText("Delete From Studio")
+    dialog._on_save()
+    assert (custom_theme_dir() / "delete-from-studio.json").exists()
+
+    delete_dialog = ThemeEditorDialog()
+    try:
+        assert delete_dialog._delete_button.isEnabled()
+        delete_dialog._delete_saved_theme()
+
+        assert delete_dialog.result() == int(delete_dialog.DialogCode.Accepted)
+        assert not (custom_theme_dir() / "delete-from-studio.json").exists()
+        assert "delete-from-studio" not in manager.theme_ids()
+        assert manager.current.id == "neon-dark"
+    finally:
+        if delete_dialog.result() != int(delete_dialog.DialogCode.Accepted):
+            delete_dialog.reject()
+
+
+@pytest.mark.ui
 def test_saved_theme_survives_reload_through_load_custom_themes(qapp):
     dialog = ThemeEditorDialog()
     dialog._name_edit.setText("Persisted Custom")

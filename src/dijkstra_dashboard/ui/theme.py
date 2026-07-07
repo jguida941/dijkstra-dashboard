@@ -693,6 +693,21 @@ class ThemeManager(QObject):
             del self._themes[theme_id]
             self.themes_changed.emit()
 
+    def delete_custom_theme(self, theme_id: str) -> None:
+        """Remove a custom theme from disk and registry.
+
+        Built-ins are protected. If the active theme is deleted, switch back to
+        Neon first so listeners are never left pointing at a missing registry id.
+        """
+        if theme_id in self.BUILTIN_THEMES:
+            raise ValueError(f"Cannot delete built-in theme: {theme_id}")
+        path = custom_theme_dir() / f"{theme_id}.json"
+        if path.exists():
+            path.unlink()
+        if self._current.id == theme_id:
+            self.set_theme("neon-dark", persist=True)
+        self.unregister_theme(theme_id)
+
     def save_custom_theme(self, theme: Theme) -> Path:
         """Persist ``theme`` as ``<id>.json`` under the custom theme dir and register it."""
         directory = custom_theme_dir()

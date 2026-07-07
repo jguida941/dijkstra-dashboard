@@ -355,6 +355,10 @@ class ThemeEditorDialog(QDialog):
         reset_button = QPushButton("Reset section")
         reset_button.clicked.connect(self._reset_section)
         buttons.addWidget(reset_button)
+        delete_button = QPushButton("Delete saved theme")
+        delete_button.clicked.connect(self._delete_saved_theme)
+        buttons.addWidget(delete_button)
+        self._delete_button = delete_button
         buttons.addStretch(1)
         save_button = QPushButton("Save")
         save_button.clicked.connect(self._on_save)
@@ -366,6 +370,7 @@ class ThemeEditorDialog(QDialog):
 
         # Seed the slug label from the initial name.
         self._on_name_changed(self._name_edit.text())
+        self._refresh_delete_button()
 
     def _build_category_page(self, name):
         if name == "Canvas & Chrome":
@@ -851,6 +856,31 @@ class ThemeEditorDialog(QDialog):
             self._show_error(str(exc))
             return
         QApplication.clipboard().setText(json.dumps(data, indent=2, ensure_ascii=True))
+
+    def _refresh_delete_button(self):
+        current_id = self._seed.get("id")
+        can_delete = (
+            isinstance(current_id, str)
+            and current_id in self._manager.theme_ids()
+            and current_id not in self._manager.BUILTIN_THEMES
+            and current_id != PREVIEW_THEME_ID
+        )
+        self._delete_button.setEnabled(can_delete)
+
+    def _delete_saved_theme(self):
+        theme_id = self._seed.get("id")
+        if (
+            not isinstance(theme_id, str)
+            or theme_id in self._manager.BUILTIN_THEMES
+            or theme_id == PREVIEW_THEME_ID
+            or theme_id not in self._manager.theme_ids()
+        ):
+            self._show_error("Only saved custom themes can be deleted.")
+            return
+        self._preview_timer.stop()
+        self._manager.delete_custom_theme(theme_id)
+        self._saved = True
+        self.accept()
 
     # ------------------------------------------------------------------
     # Save / cancel / close

@@ -7,7 +7,8 @@ snapped (animate=False) and animated (tiny duration + waitUntil).
 from __future__ import annotations
 
 import pytest
-from PyQt6.QtCore import QPointF, QSettings, Qt
+from PyQt6.QtCore import QEvent, QPointF, QSettings, Qt
+from PyQt6.QtGui import QMouseEvent
 from PyQt6.QtWidgets import QDialog, QMessageBox
 
 import dijkstra_dashboard.ui.main_window as mw_module
@@ -47,6 +48,12 @@ def _action(menu, needle):
         if needle in action.text():
             return action
     return None
+
+
+def _mouse_event(kind, pos, button, buttons=None, modifiers=Qt.KeyboardModifier.NoModifier):
+    buttons = button if buttons is None else buttons
+    point = QPointF(*pos)
+    return QMouseEvent(kind, point, point, button, buttons, modifiers)
 
 
 # ---- menu structure --------------------------------------------------------
@@ -97,6 +104,47 @@ def test_snap_to_grid_action_and_dragged_position_rounding(qapp, tmp_path):
     assert node.pos().y() == pytest.approx(75)
     assert window.graph_view.get_graph().get_node_position("A") == pytest.approx((25, 75))
     window.close()
+
+
+def test_empty_canvas_left_drag_pans_view(qapp, qtbot, monkeypatch):
+    view = GraphView()
+    qtbot.addWidget(view)
+    view.resize(420, 320)
+    view.show()
+    qtbot.waitExposed(view)
+    view.centerOn(0, 0)
+    monkeypatch.setattr(view, "itemAt", lambda *args, **kwargs: None)
+
+    start_h = view.horizontalScrollBar().value()
+    view.mousePressEvent(
+        _mouse_event(
+            QEvent.Type.MouseButtonPress,
+            (210, 160),
+            Qt.MouseButton.LeftButton,
+        )
+    )
+    assert view._is_panning
+
+    view.mouseMoveEvent(
+        _mouse_event(
+            QEvent.Type.MouseMove,
+            (130, 160),
+            Qt.MouseButton.NoButton,
+            Qt.MouseButton.LeftButton,
+        )
+    )
+
+    assert view.horizontalScrollBar().value() > start_h
+
+    view.mouseReleaseEvent(
+        _mouse_event(
+            QEvent.Type.MouseButtonRelease,
+            (130, 160),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.NoButton,
+        )
+    )
+    assert not view._is_panning
 
 
 def test_file_menu_has_export_and_open_recent(qapp, tmp_path):

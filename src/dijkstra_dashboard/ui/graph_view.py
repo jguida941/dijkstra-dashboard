@@ -55,7 +55,8 @@ class GraphView(QGraphicsView):
 
         self._apply_canvas_bg(current_theme())
 
-        # Enable node dragging; use right-click drag for panning
+        # Nodes handle their own left-drag movement. The view handles canvas
+        # panning explicitly so hidden scrollbars still move predictably.
         self.setDragMode(self.DragMode.NoDrag)
 
         # Zoom settings
@@ -65,6 +66,9 @@ class GraphView(QGraphicsView):
         self._snap_to_grid = False
         self._grid_size = 40.0
         self._snapping_node = False
+        self._is_panning = False
+        self._pan_button = Qt.MouseButton.NoButton
+        self._pan_last_pos = None
 
         # Create zoom controls
         self.create_zoom_controls()
@@ -263,30 +267,70 @@ class GraphView(QGraphicsView):
         for edge in self.edges.values():
             edge.update_position()
 
+    def _item_at_event(self, event):
+        item = self.itemAt(event.position().toPoint())
+        if isinstance(item, QGraphicsSimpleTextItem):
+            parent = item.parentItem()
+            if isinstance(parent, GraphNode):
+                return parent
+        return item
+
+    def _set_pan_cursor(self, active):
+        if active:
+            self.viewport().setCursor(Qt.CursorShape.ClosedHandCursor)
+        else:
+            self.viewport().unsetCursor()
+
+    def _start_pan(self, event):
+        self._is_panning = True
+        self._pan_button = event.button()
+        self._pan_last_pos = event.position().toPoint()
+        self._set_pan_cursor(True)
+        event.accept()
+
+    def _finish_pan(self):
+        self._is_panning = False
+        self._pan_button = Qt.MouseButton.NoButton
+        self._pan_last_pos = None
+        self._set_pan_cursor(False)
+
+    def _should_start_pan(self, event, item):
+        button = event.button()
+        if button in (Qt.MouseButton.RightButton, Qt.MouseButton.MiddleButton):
+            # Preserve the existing Ctrl/Option + right-click node shortcut for
+            # edge creation; every other right/middle drag pans the canvas.
+            return not (
+                button == Qt.MouseButton.RightButton
+                and isinstance(item, GraphNode)
+                and (
+                    event.modifiers() & Qt.KeyboardModifier.ControlModifier
+                    or event.modifiers() & Qt.KeyboardModifier.AltModifier
+                )
+            )
+        if button != Qt.MouseButton.LeftButton:
+            return False
+        if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+            return False
+        # Plain left-drag on empty space is the grab-the-canvas path. Left-drag
+        # on nodes remains node movement, and edges/labels remain selectable.
+        return item is None
+
     def mousePressEvent(self, event):
         self.setFocus()
-        if event.button() == Qt.MouseButton.RightButton:
-            item = self.itemAt(event.position().toPoint())
-            if isinstance(item, QGraphicsSimpleTextItem):
-                parent = item.parentItem()
-                if isinstance(parent, GraphNode):
-                    item = parent
-            if isinstance(item, GraphNode) and (
-                event.modifiers() & Qt.KeyboardModifier.ControlModifier
-                or event.modifiers() & Qt.KeyboardModifier.AltModifier
-            ):
-                self.handle_node_click(item)
-                return
-            self.setDragMode(self.DragMode.ScrollHandDrag)
-            super().mousePressEvent(event)
+        item = self._item_at_event(event)
+
+        if event.button() == Qt.MouseButton.RightButton and isinstance(item, GraphNode) and (
+            event.modifiers() & Qt.KeyboardModifier.ControlModifier
+            or event.modifiers() & Qt.KeyboardModifier.AltModifier
+        ):
+            self.handle_node_click(item)
+            return
+
+        if self._should_start_pan(event, item):
+            self._start_pan(event)
             return
 
         if event.button() == Qt.MouseButton.LeftButton:
-            item = self.itemAt(event.position().toPoint())
-            if isinstance(item, QGraphicsSimpleTextItem):
-                parent = item.parentItem()
-                if isinstance(parent, GraphNode):
-                    item = parent
             if isinstance(item, GraphNode):
                 if self.pending_edge_start is not None:
                     self.handle_node_click(item)
@@ -310,9 +354,22 @@ class GraphView(QGraphicsView):
 
         super().mousePressEvent(event)
 
+    def mouseMoveEvent(self, event):
+        if self._is_panning and self._pan_last_pos is not None:
+            pos = event.position().toPoint()
+            delta = pos - self._pan_last_pos
+            self._pan_last_pos = pos
+            self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() - delta.x())
+            self.verticalScrollBar().setValue(self.verticalScrollBar().value() - delta.y())
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
     def mouseReleaseEvent(self, event):
-        if event.button() == Qt.MouseButton.RightButton:
-            self.setDragMode(self.DragMode.NoDrag)
+        if self._is_panning and event.button() == self._pan_button:
+            self._finish_pan()
+            event.accept()
+            return
         super().mouseReleaseEvent(event)
         if event.button() == Qt.MouseButton.LeftButton and self._drag_node is not None:
             node = self._drag_node

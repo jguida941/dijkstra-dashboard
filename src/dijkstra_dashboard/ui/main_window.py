@@ -315,6 +315,10 @@ class MainWindow(QMainWindow):
         edit_theme_action.triggered.connect(self.open_theme_editor)
         view_menu.addAction(edit_theme_action)
 
+        delete_theme_action = QAction("Delete Custom Theme…", self)
+        delete_theme_action.triggered.connect(self.delete_custom_theme)
+        view_menu.addAction(delete_theme_action)
+
         # Graph menu sits between View and Help.
         graph_menu = self.menuBar().addMenu("Graph")
 
@@ -426,6 +430,38 @@ class MainWindow(QMainWindow):
     def open_theme_editor(self):
         dialog = ThemeEditorDialog(self)
         dialog.exec()
+
+    def delete_custom_theme(self):
+        manager = get_theme_manager()
+        choices = [
+            theme_id for theme_id in manager.theme_ids()
+            if theme_id not in manager.BUILTIN_THEMES and theme_id != PREVIEW_THEME_ID
+        ]
+        if not choices:
+            QMessageBox.information(self, "Delete Custom Theme", "No custom themes to delete.")
+            return
+
+        labels = [f"{manager.THEMES[theme_id].name} ({theme_id})" for theme_id in choices]
+        selected, ok = QInputDialog.getItem(
+            self,
+            "Delete Custom Theme",
+            "Theme:",
+            labels,
+            0,
+            False,
+        )
+        if not ok or not selected:
+            return
+        theme_id = choices[labels.index(selected)]
+        if QMessageBox.question(
+            self,
+            "Delete Custom Theme",
+            f"Delete '{manager.THEMES[theme_id].name}'?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        ) != QMessageBox.StandardButton.Yes:
+            return
+        manager.delete_custom_theme(theme_id)
 
     def _setup_shortcuts(self):
         # WindowShortcut transport controls; guards inside each handler bail when
@@ -668,7 +704,7 @@ class MainWindow(QMainWindow):
             "- Double-click node: rename\n"
             "- Double-click edge/weight: edit weight\n"
             "- Select node/edge + Delete: remove\n"
-            "- Right-drag: pan\n"
+            "- Drag empty canvas, right-drag, or middle-drag: pan\n"
             "- Zoom: use +/- buttons or 100%\n\n"
             "Playback:\n"
             "- Algorithm selector: choose which algorithm to replay\n"
