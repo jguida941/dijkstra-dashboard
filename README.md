@@ -3,6 +3,9 @@
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://python.org)
 [![PyQt6](https://img.shields.io/badge/PyQt6-GUI-green.svg)](https://pypi.org/project/PyQt6/)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Algorithm](https://img.shields.io/badge/Algorithm-Dijkstra-orange.svg)](https://en.wikipedia.org/wiki/Dijkstra%27s_algorithm)
+[![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows%20%7C%20Linux-red.svg)]()
+[![Graph Theory](https://img.shields.io/badge/Graph_Theory-Shortest_Path-purple.svg)]()
 
 An interactive teaching tool for shortest-path algorithms. Build a weighted graph on the canvas, pick an
 algorithm, and watch it run **step by step**: play, pause, step forward or back, and scrub the timeline to
