@@ -8,11 +8,11 @@ from __future__ import annotations
 import pytest
 from PyQt6.QtCore import QPoint, QPointF, Qt
 from PyQt6.QtGui import QPainterPath, QWheelEvent
-from PyQt6.QtWidgets import QGraphicsScene
+from PyQt6.QtWidgets import QGraphicsScene, QPushButton
 
 from dijkstra_dashboard.ui.animations import AnimationCoordinator
 from dijkstra_dashboard.ui.graph_node import GraphNode
-from dijkstra_dashboard.ui.graph_view import GraphView
+from dijkstra_dashboard.ui.graph_view import GraphView, ZOOM_OVERLAY_MARGIN
 from dijkstra_dashboard.ui.theme import get_theme_manager
 
 
@@ -125,8 +125,14 @@ def test_zoom_overlay_keeps_clearance_from_view_edges(qapp, qtbot):
     view._anchor_zoom_overlay()
 
     overlay = view.zoom_controls_widget.geometry()
-    assert view.width() - overlay.right() >= 28
-    assert view.height() - overlay.bottom() >= 28
+    viewport_rect = view.viewport().rect()
+    assert view.zoom_controls_widget.parent() == view.viewport()
+    assert viewport_rect.width() - overlay.right() >= ZOOM_OVERLAY_MARGIN
+    assert viewport_rect.height() - overlay.bottom() >= ZOOM_OVERLAY_MARGIN
+
+    for button in view.zoom_controls_widget.findChildren(QPushButton):
+        button_bottom = view.zoom_controls_widget.y() + button.geometry().bottom()
+        assert viewport_rect.height() - button_bottom >= ZOOM_OVERLAY_MARGIN
 
 
 def test_node_clamps_against_big_scene_rect(qapp):

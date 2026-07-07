@@ -1,5 +1,5 @@
 from PyQt6 import sip
-from PyQt6.QtWidgets import QGraphicsView, QGraphicsScene, QPushButton, QHBoxLayout, QWidget, QInputDialog, QGraphicsSimpleTextItem, QSizePolicy
+from PyQt6.QtWidgets import QGraphicsView, QGraphicsScene, QPushButton, QWidget, QInputDialog, QGraphicsSimpleTextItem, QSizePolicy
 from PyQt6.QtCore import Qt, QPointF, QTimer, pyqtSignal
 from PyQt6.QtGui import QBrush, QColor, QLinearGradient, QPen, QResizeEvent
 from .graph_node import GraphNode
@@ -13,6 +13,7 @@ import math
 INF = float("inf")
 IMPACT_FLASH_START = 0.84
 FIT_MARGIN = 36.0
+ZOOM_OVERLAY_MARGIN = 36
 
 
 def format_distance(value):
@@ -113,34 +114,31 @@ class GraphView(QGraphicsView):
         # Create a container widget for zoom controls
         controls_widget = QWidget()
         controls_widget.setObjectName("zoomOverlay")
-        controls_layout = QHBoxLayout()
-        controls_widget.setLayout(controls_layout)
+        controls_widget.setFixedSize(120, 30)
 
         # Zoom out button
-        zoom_out_btn = QPushButton("-")
+        zoom_out_btn = QPushButton("-", controls_widget)
         zoom_out_btn.setFixedSize(30, 30)
+        zoom_out_btn.move(0, 0)
         zoom_out_btn.clicked.connect(self.zoom_out)
 
         # Zoom reset button
-        zoom_reset_btn = QPushButton("100%")
+        zoom_reset_btn = QPushButton("100%", controls_widget)
         zoom_reset_btn.setFixedSize(50, 30)
+        zoom_reset_btn.move(35, 0)
         zoom_reset_btn.clicked.connect(self.reset_zoom)
 
         # Zoom in button
-        zoom_in_btn = QPushButton("+")
+        zoom_in_btn = QPushButton("+", controls_widget)
         zoom_in_btn.setFixedSize(30, 30)
+        zoom_in_btn.move(90, 0)
         zoom_in_btn.clicked.connect(self.zoom_in)
 
-        # Add buttons to layout
-        controls_layout.addWidget(zoom_out_btn)
-        controls_layout.addWidget(zoom_reset_btn)
-        controls_layout.addWidget(zoom_in_btn)
-        controls_layout.setSpacing(5)
-        controls_layout.setContentsMargins(0, 0, 0, 0)
-
-        # Add controls to the view
-        controls_widget.setParent(self)
-        controls_widget.move(10, 10)  # Position in top-left corner
+        # Add controls to the viewport so the overlay clears the visible canvas
+        # area instead of the outer QGraphicsView frame/splitter edge.
+        controls_widget.setParent(self.viewport())
+        controls_widget.move(10, 10)
+        controls_widget.raise_()
         self.zoom_controls_widget = controls_widget
 
     def _apply_canvas_bg(self, theme):
@@ -256,11 +254,12 @@ class GraphView(QGraphicsView):
         overlay = getattr(self, "zoom_controls_widget", None)
         if overlay is None:
             return
-        overlay.adjustSize()
-        margin = 28
-        x = self.width() - overlay.width() - margin
-        y = self.height() - overlay.height() - margin
+        viewport_rect = self.viewport().rect()
+        margin = ZOOM_OVERLAY_MARGIN
+        x = viewport_rect.width() - overlay.width() - margin
+        y = viewport_rect.height() - overlay.height() - margin
         overlay.move(max(0, x), max(0, y))
+        overlay.raise_()
 
     def resizeEvent(self, event: QResizeEvent):
         super().resizeEvent(event)
