@@ -1,24 +1,44 @@
-from PyQt6.QtWidgets import QGraphicsView, QGraphicsScene, QGraphicsDropShadowEffect, QPushButton, QHBoxLayout, QWidget, QInputDialog, QGraphicsSimpleTextItem, QSizePolicy
-from PyQt6.QtCore import Qt, QPointF, QTimer, QRectF, QPoint, pyqtSignal
-from PyQt6.QtGui import QPen, QBrush, QColor, QLinearGradient, QWheelEvent, QMouseEvent, QResizeEvent
+from PyQt6 import sip
+from PyQt6.QtWidgets import QGraphicsView, QGraphicsScene, QPushButton, QWidget, QInputDialog, QGraphicsSimpleTextItem, QSizePolicy
+from PyQt6.QtCore import QEvent, Qt, QPointF, QTimer, pyqtSignal
+from PyQt6.QtGui import QBrush, QColor, QLinearGradient, QPen, QResizeEvent
 from .graph_node import GraphNode
-from .graph_edge import GraphEdge
-from dijkstra_dashboard.core.algorithms.dijkstra import DijkstraAlgorithm
-from dijkstra_dashboard.core.algorithms.runner import apply_step, init_state
-from dijkstra_dashboard.core.errors import AlgorithmError
+from .graph_edge import GraphEdge, WeightChip
+from .animations import AnimationCoordinator
+from .undo import GraphSnapshotCommand
+from .theme import current_theme, get_theme_manager
 from dijkstra_dashboard.core.graph import Graph
 import math
+
+INF = float("inf")
+IMPACT_FLASH_START = 0.84
+FIT_MARGIN = 36.0
+ZOOM_OVERLAY_MARGIN = 36
+ZOOM_OVERLAY_PADDING = 4
+ZOOM_OVERLAY_GAP = 5
+ZOOM_BUTTON_WIDTH = 30
+ZOOM_BUTTON_HEIGHT = 30
+ZOOM_RESET_WIDTH = 50
+
+
+def format_distance(value):
+    if value == INF:
+        return "∞"
+    if float(value).is_integer():
+        return str(int(value))
+    return f"{value:g}"
+
 
 class GraphView(QGraphicsView):
     graph_changed = pyqtSignal()
     message_changed = pyqtSignal(str)
-    playback_finished = pyqtSignal()
+    status_message = pyqtSignal(str, str)
 
-    def __init__(self, status_panel=None):
+    def __init__(self):
         super().__init__()
         self.scene = QGraphicsScene()
         self.setScene(self.scene)
-        
+
         # Enhanced rendering settings
         self.setRenderHint(self.renderHints().Antialiasing)
         self.setRenderHint(self.renderHints().SmoothPixmapTransform)
@@ -26,177 +46,388 @@ class GraphView(QGraphicsView):
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        
+
         # Make view expandable instead of fixed size
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setMinimumSize(400, 300)
-        # Initial scene rect - will be updated on resize
-        self.scene.setSceneRect(-400, -300, 800, 600)
-        
-        # Enhanced background with gradient
-        gradient = QLinearGradient(0, 0, 0, 600)
-        gradient.setColorAt(0, QColor(10, 10, 10))
-        gradient.setColorAt(1, QColor(20, 20, 20))
-        self.setBackgroundBrush(QBrush(gradient))
-        
-        # Enable node dragging; use right-click drag for panning
+        # Scene rect is decoupled from the window: one big fixed canvas so nodes
+        # can be dragged well outside the current viewport. Set once, never
+        # rewritten on resize.
+        self.scene.setSceneRect(-1500, -1000, 3000, 2000)
+
+        # Coordinator owns every transient tween (pops, travel dots, staggers,
+        # zoom eases). Parented to the view; graphics items never own it.
+        self.animator = AnimationCoordinator(self)
+
+        self._apply_canvas_bg(current_theme())
+
+        # Nodes handle their own left-drag movement. The view handles canvas
+        # panning explicitly so hidden scrollbars still move predictably.
         self.setDragMode(self.DragMode.NoDrag)
-        
+
         # Zoom settings
         self.zoom_level = 1.0
         self.zoom_step = 0.2  # 20% zoom step
-        
+        self._label_scale = 1.0
+        self._snap_to_grid = False
+        self._grid_size = 40.0
+        self._snapping_node = False
+        # Set while a computed layout is being applied: node moves must NOT be
+        # grid-snapped or the layout's exact positions get quantized/stuttered.
+        self._suspend_snap = False
+        self._is_panning = False
+        self._pan_button = Qt.MouseButton.NoButton
+        self._pan_last_pos = None
+
         # Create zoom controls
         self.create_zoom_controls()
-        
+
         # Store nodes and edges
         self.nodes = {}
         self.edges = {}
         self.graph = None
         self.pending_edge_start = None
-        
-        # Animation timer
-        self.animation_timer = QTimer()
-        self.animation_timer.timeout.connect(self.animate_step)
-        self.animation_timer.setInterval(500)
-        self.current_path = []
-        self.steps = []
-        self.step_index = 0
-        self.visited_order = []
-        self.final_visited_order = []
-        self.step_state = None
-        self.ready_params = None
-        self.finalized = False
-        
-        # Status panel reference
-        self.status_panel = status_panel
-        
+
+        # Undo/redo (Phase 7): the stack is injected by MainWindow; the view is
+        # constructible without one, and every mutation hook no-ops when it is
+        # None (keeps stack-free tests untouched). ``_pending_before`` holds the
+        # in-flight snapshot between _begin_mutation and _commit_mutation;
+        # ``_drag_node`` marks a plain-left drag that spans press -> release.
+        self.undo_stack = None
+        self._pending_before = None
+        self._drag_node = None
+        self._drag_nodes = []
+        self._group_drag_start_scene = None
+        self._group_drag_origins = {}
+
+        get_theme_manager().theme_changed.connect(self._on_theme_changed)
+
         # Setup the graph
         self.setup_graph()
-        
+
+    def set_label_scale(self, scale):
+        scale = max(1.0, min(1.6, float(scale)))
+        if abs(scale - self._label_scale) < 0.01:
+            return
+        self._label_scale = scale
+        self._apply_label_scale()
+
+    def _apply_label_scale(self):
+        for node in self.nodes.values():
+            node.set_font_scale(self._label_scale)
+        for edge in self.edges.values():
+            edge.set_label_scale(self._label_scale)
+
     def create_zoom_controls(self):
         # Create a container widget for zoom controls
         controls_widget = QWidget()
-        controls_layout = QHBoxLayout()
-        controls_widget.setLayout(controls_layout)
-        
+        controls_widget.setObjectName("zoomOverlay")
+        overlay_width = (
+            ZOOM_OVERLAY_PADDING * 2
+            + ZOOM_BUTTON_WIDTH * 2
+            + ZOOM_RESET_WIDTH
+            + ZOOM_OVERLAY_GAP * 2
+        )
+        overlay_height = ZOOM_OVERLAY_PADDING * 2 + ZOOM_BUTTON_HEIGHT
+        controls_widget.setFixedSize(overlay_width, overlay_height)
+
         # Zoom out button
-        zoom_out_btn = QPushButton("-")
-        zoom_out_btn.setFixedSize(30, 30)
-        zoom_out_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #333333;
-                color: white;
-                border: 1px solid #555555;
-                border-radius: 15px;
-                font-size: 16px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #444444;
-            }
-        """)
+        zoom_out_btn = QPushButton("-", controls_widget)
+        zoom_out_btn.setFixedSize(ZOOM_BUTTON_WIDTH, ZOOM_BUTTON_HEIGHT)
+        zoom_out_btn.move(ZOOM_OVERLAY_PADDING, ZOOM_OVERLAY_PADDING)
         zoom_out_btn.clicked.connect(self.zoom_out)
-        
+
         # Zoom reset button
-        zoom_reset_btn = QPushButton("100%")
-        zoom_reset_btn.setFixedSize(50, 30)
-        zoom_reset_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #333333;
-                color: white;
-                border: 1px solid #555555;
-                border-radius: 15px;
-                font-size: 12px;
-            }
-            QPushButton:hover {
-                background-color: #444444;
-            }
-        """)
+        zoom_reset_btn = QPushButton("100%", controls_widget)
+        zoom_reset_btn.setFixedSize(ZOOM_RESET_WIDTH, ZOOM_BUTTON_HEIGHT)
+        zoom_reset_btn.move(
+            ZOOM_OVERLAY_PADDING + ZOOM_BUTTON_WIDTH + ZOOM_OVERLAY_GAP,
+            ZOOM_OVERLAY_PADDING,
+        )
         zoom_reset_btn.clicked.connect(self.reset_zoom)
-        
+
         # Zoom in button
-        zoom_in_btn = QPushButton("+")
-        zoom_in_btn.setFixedSize(30, 30)
-        zoom_in_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #333333;
-                color: white;
-                border: 1px solid #555555;
-                border-radius: 15px;
-                font-size: 16px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #444444;
-            }
-        """)
+        zoom_in_btn = QPushButton("+", controls_widget)
+        zoom_in_btn.setFixedSize(ZOOM_BUTTON_WIDTH, ZOOM_BUTTON_HEIGHT)
+        zoom_in_btn.move(
+            ZOOM_OVERLAY_PADDING + ZOOM_BUTTON_WIDTH + ZOOM_OVERLAY_GAP + ZOOM_RESET_WIDTH + ZOOM_OVERLAY_GAP,
+            ZOOM_OVERLAY_PADDING,
+        )
         zoom_in_btn.clicked.connect(self.zoom_in)
-        
-        # Add buttons to layout
-        controls_layout.addWidget(zoom_out_btn)
-        controls_layout.addWidget(zoom_reset_btn)
-        controls_layout.addWidget(zoom_in_btn)
-        controls_layout.setSpacing(5)
-        controls_layout.setContentsMargins(0, 0, 0, 0)
-        
-        # Add controls to the view
+
+        # Parent to the view itself, NOT the viewport: QGraphicsView scrolls the
+        # viewport's child widgets along with the canvas, so a viewport-parented
+        # overlay drifts away (and can leave the visible area) on every pan.
+        # _anchor_zoom_overlay positions it against the viewport's geometry so it
+        # still clears the frame/splitter edge.
         controls_widget.setParent(self)
-        controls_widget.move(10, 10)  # Position in top-left corner
-        
+        controls_widget.raise_()
+        self.zoom_controls_widget = controls_widget
+        self._anchor_zoom_overlay()
+
+    def _apply_canvas_bg(self, theme):
+        rect = self.scene.sceneRect()
+        gradient = QLinearGradient(0, rect.top(), 0, rect.bottom())
+        gradient.setColorAt(0, QColor(theme.canvas_bg_top))
+        gradient.setColorAt(1, QColor(theme.canvas_bg_bottom))
+        self.setBackgroundBrush(QBrush(gradient))
+
+    def drawBackground(self, painter, rect):
+        super().drawBackground(painter, rect)
+        if not self._snap_to_grid:
+            return
+        grid = max(5.0, float(self._grid_size))
+        theme = current_theme()
+        color = QColor(theme.button_border)
+        color.setAlpha(90 if theme.dark else 120)
+        painter.setPen(QPen(color, 1.0))
+        left = math.floor(rect.left() / grid) * grid
+        top = math.floor(rect.top() / grid) * grid
+        x = left
+        while x <= rect.right():
+            painter.drawLine(QPointF(x, rect.top()), QPointF(x, rect.bottom()))
+            x += grid
+        y = top
+        while y <= rect.bottom():
+            painter.drawLine(QPointF(rect.left(), y), QPointF(rect.right(), y))
+            y += grid
+
+    def _on_theme_changed(self, theme):
+        # Cancel -> snap every in-flight tween before restyling, then refresh.
+        self.animator.cancel_all()
+        self._apply_canvas_bg(theme)
+        for node in self.nodes.values():
+            node.refresh_theme()
+        for edge in self.edges.values():
+            edge.refresh_theme()
+
     def zoom_in(self):
-        self.zoom_level += self.zoom_step
-        self.set_zoom()
-        
+        # Snap any in-flight ease first so every click advances one full step
+        # (a mid-tween zoom_level would otherwise swallow part of the step).
+        self.animator.cancel("zoom")
+        target = min(5.0, self.zoom_level + self.zoom_step)
+        if target > self.zoom_level:
+            self._animate_zoom(target)
+
     def zoom_out(self):
-        self.zoom_level = max(0.2, self.zoom_level - self.zoom_step)
-        self.set_zoom()
-        
+        self.animator.cancel("zoom")
+        target = max(0.2, self.zoom_level - self.zoom_step)
+        if target < self.zoom_level:
+            self._animate_zoom(target)
+
     def reset_zoom(self):
+        # "100%" resets instantly (center-anchored). Cancel any in-flight +/- ease
+        # first so the reset can't be overridden by a lingering zoom tween.
+        self.animator.cancel("zoom")
         self.zoom_level = 1.0
         self.set_zoom()
-        
+
+    def _animate_zoom(self, target):
+        def apply(value):
+            self.zoom_level = value
+            self.set_zoom()
+
+        self.animator.animate_float("zoom", self.zoom_level, target, 120, apply)
+
     def set_zoom(self):
-        # Reset transform
+        # Reset transform then scale (center-anchored path for the +/-/100% buttons).
         self.resetTransform()
-        # Apply new zoom level
         self.scale(self.zoom_level, self.zoom_level)
+
+    def wheelEvent(self, event):
+        # Incremental zoom anchored under the cursor. A running button-ease is
+        # snapped first so its ticks can't fight (and visually revert) the wheel.
+        self.animator.cancel("zoom")
+        self._zoom_at_cursor(self.zoom_level * (1.0015 ** event.angleDelta().y()))
+        event.accept()
+
+    def viewportEvent(self, event):
+        # macOS trackpad pinch: native gesture events are delivered to the
+        # viewport, never wheelEvent.
+        if (
+            event.type() == QEvent.Type.NativeGesture
+            and event.gestureType() == Qt.NativeGestureType.ZoomNativeGesture
+        ):
+            self.animator.cancel("zoom")
+            self._zoom_at_cursor(self.zoom_level * (1.0 + event.value()))
+            return True
+        return super().viewportEvent(event)
+
+    def _zoom_at_cursor(self, new_zoom):
+        # NEVER resetTransform here: that would drop the AnchorUnderMouse
+        # translation. Scale by the ratio of the clamped new zoom to the current
+        # zoom, and keep zoom_level truthful.
+        new_zoom = max(0.2, min(5.0, new_zoom))
+        factor = new_zoom / self.zoom_level if self.zoom_level else 1.0
+        self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
+        self.scale(factor, factor)
+        self.zoom_level = new_zoom
+        self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
+
+    def fit_to_content(self):
+        # Fit the graph's bounding box (plus margin) into the viewport, then
+        # resync zoom_level to the resulting scale. No-op on an empty scene.
+        if not self.scene.items():
+            return
+        rect = self.scene.itemsBoundingRect()
+        if rect.isEmpty():
+            return
+        self.fitInView(
+            rect.adjusted(-FIT_MARGIN, -FIT_MARGIN, FIT_MARGIN, FIT_MARGIN),
+            Qt.AspectRatioMode.KeepAspectRatio,
+        )
+        self.zoom_level = self.transform().m11()
+
+    def set_tween_interval(self, ms):
+        self.animator.set_interval(ms)
+
+    def set_snap_to_grid(self, enabled):
+        self._snap_to_grid = bool(enabled)
+        self.viewport().update()
+
+    def snap_to_grid(self):
+        return self._snap_to_grid
+
+    def set_grid_size(self, size):
+        self._grid_size = max(5.0, float(size))
+        if self._snap_to_grid:
+            self.viewport().update()
+
+    def grid_size(self):
+        return self._grid_size
+
+    def _snap_point(self, point):
+        grid = max(5.0, float(self._grid_size))
+        return QPointF(round(point.x() / grid) * grid, round(point.y() / grid) * grid)
+
+    def _anchor_zoom_overlay(self):
+        overlay = getattr(self, "zoom_controls_widget", None)
+        if overlay is None:
+            return
+        # The viewport's geometry is expressed in view coordinates (the overlay's
+        # parent), so anchoring against it keeps the overlay inside the visible
+        # canvas even when the view draws a frame.
+        viewport_geo = self.viewport().geometry()
+        margin = ZOOM_OVERLAY_MARGIN
+        x = viewport_geo.x() + viewport_geo.width() - overlay.width() - margin
+        y = viewport_geo.y() + viewport_geo.height() - overlay.height() - margin
+        overlay.move(max(viewport_geo.x(), x), max(viewport_geo.y(), y))
+        overlay.raise_()
 
     def resizeEvent(self, event: QResizeEvent):
         super().resizeEvent(event)
-        # Update scene rect to match view size, centered at origin
-        w = event.size().width()
-        h = event.size().height()
-        self.scene.setSceneRect(-w / 2, -h / 2, w, h)
-        # Update edge label positions since scene bounds changed
+        # Scene rect is fixed (decoupled from the window); do NOT rewrite it here.
+        # Re-apply the canvas gradient and re-anchor the zoom overlay bottom-right.
+        self._apply_canvas_bg(current_theme())
+        self._anchor_zoom_overlay()
         for edge in self.edges.values():
             edge.update_position()
 
+    def _item_at_event(self, event):
+        item = self.itemAt(event.position().toPoint())
+        if isinstance(item, QGraphicsSimpleTextItem):
+            parent = item.parentItem()
+            if isinstance(parent, GraphNode):
+                return parent
+        return item
+
+    def _set_pan_cursor(self, active):
+        if active:
+            self.viewport().setCursor(Qt.CursorShape.ClosedHandCursor)
+        else:
+            self.viewport().unsetCursor()
+
+    def _start_pan(self, event):
+        self._is_panning = True
+        self._pan_button = event.button()
+        self._pan_last_pos = event.position().toPoint()
+        self._set_pan_cursor(True)
+        event.accept()
+
+    def _finish_pan(self):
+        self._is_panning = False
+        self._pan_button = Qt.MouseButton.NoButton
+        self._pan_last_pos = None
+        self._set_pan_cursor(False)
+
+    def _selected_nodes(self):
+        return [
+            item for item in self.scene.selectedItems()
+            if isinstance(item, GraphNode) and not sip.isdeleted(item)
+        ]
+
+    def _toggle_group_selection(self, node):
+        node.setSelected(not node.isSelected())
+        count = len(self._selected_nodes())
+        noun = "node" if count == 1 else "nodes"
+        self.status_message.emit(f"{count} {noun} selected for group move.", "text")
+
+    def _start_group_drag(self, node, event):
+        selected = self._selected_nodes()
+        if node not in selected:
+            selected.append(node)
+            node.setSelected(True)
+        if len(selected) < 2:
+            return False
+        self._begin_mutation()
+        self._drag_node = node
+        self._drag_nodes = selected
+        self._group_drag_start_scene = self.mapToScene(event.position().toPoint())
+        self._group_drag_origins = {item: QPointF(item.pos()) for item in selected}
+        self._set_pan_cursor(True)
+        event.accept()
+        return True
+
+    def _finish_group_drag(self):
+        self._set_pan_cursor(False)
+        self._drag_node = None
+        self._drag_nodes = []
+        self._group_drag_start_scene = None
+        self._group_drag_origins = {}
+
+    def _should_start_pan(self, event, item):
+        button = event.button()
+        if button in (Qt.MouseButton.RightButton, Qt.MouseButton.MiddleButton):
+            # Preserve the existing Ctrl/Option + right-click node shortcut for
+            # edge creation; every other right/middle drag pans the canvas.
+            return not (
+                button == Qt.MouseButton.RightButton
+                and isinstance(item, GraphNode)
+                and (
+                    event.modifiers() & Qt.KeyboardModifier.ControlModifier
+                    or event.modifiers() & Qt.KeyboardModifier.AltModifier
+                )
+            )
+        if button != Qt.MouseButton.LeftButton:
+            return False
+        if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+            return False
+        # Plain left-drag on empty space is the grab-the-canvas path. Left-drag
+        # on nodes remains node movement, and edges/labels remain selectable.
+        return item is None
+
     def mousePressEvent(self, event):
         self.setFocus()
-        if event.button() == Qt.MouseButton.RightButton:
-            item = self.itemAt(event.position().toPoint())
-            if isinstance(item, QGraphicsSimpleTextItem):
-                parent = item.parentItem()
-                if isinstance(parent, GraphNode):
-                    item = parent
-            if isinstance(item, GraphNode) and (
-                event.modifiers() & Qt.KeyboardModifier.ControlModifier
-                or event.modifiers() & Qt.KeyboardModifier.AltModifier
-            ):
-                self.handle_node_click(item)
-                return
-            self.setDragMode(self.DragMode.ScrollHandDrag)
-            super().mousePressEvent(event)
+        item = self._item_at_event(event)
+
+        if event.button() == Qt.MouseButton.RightButton and isinstance(item, GraphNode) and (
+            event.modifiers() & Qt.KeyboardModifier.ControlModifier
+            or event.modifiers() & Qt.KeyboardModifier.AltModifier
+        ):
+            self.handle_node_click(item)
+            return
+
+        if self._should_start_pan(event, item):
+            self._start_pan(event)
             return
 
         if event.button() == Qt.MouseButton.LeftButton:
-            item = self.itemAt(event.position().toPoint())
-            if isinstance(item, QGraphicsSimpleTextItem):
-                parent = item.parentItem()
-                if isinstance(parent, GraphNode):
-                    item = parent
             if isinstance(item, GraphNode):
+                if event.modifiers() & Qt.KeyboardModifier.MetaModifier:
+                    self.pending_edge_start = None
+                    self._toggle_group_selection(item)
+                    event.accept()
+                    return
                 if self.pending_edge_start is not None:
                     self.handle_node_click(item)
                     return
@@ -207,17 +438,65 @@ class GraphView(QGraphicsView):
                 ):
                     self.handle_node_click(item)
                     return
+                if item.isSelected() and self._start_group_drag(item, event):
+                    return
+                # F8: a plain left press on a node (no modifiers, no pending
+                # edge-start) falls through to a real drag -- snapshot now;
+                # mouseReleaseEvent commits "Move node" iff it actually moved.
+                self._begin_mutation()
+                self._drag_node = item
             if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
                 if not isinstance(item, GraphNode):
                     self.add_node_at(event.position().toPoint())
                     return
 
         super().mousePressEvent(event)
-        
+
+    def mouseMoveEvent(self, event):
+        if self._drag_nodes and self._group_drag_start_scene is not None:
+            scene_pos = self.mapToScene(event.position().toPoint())
+            delta = scene_pos - self._group_drag_start_scene
+            for node, origin in list(self._group_drag_origins.items()):
+                if not sip.isdeleted(node):
+                    node.setPos(origin + delta)
+            event.accept()
+            return
+        if self._is_panning and self._pan_last_pos is not None:
+            pos = event.position().toPoint()
+            delta = pos - self._pan_last_pos
+            self._pan_last_pos = pos
+            self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() - delta.x())
+            self.verticalScrollBar().setValue(self.verticalScrollBar().value() - delta.y())
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
     def mouseReleaseEvent(self, event):
-        if event.button() == Qt.MouseButton.RightButton:
-            self.setDragMode(self.DragMode.NoDrag)
+        if event.button() == Qt.MouseButton.LeftButton and self._drag_nodes:
+            nodes = list(self._drag_nodes)
+            self._finish_group_drag()
+            if self._any_drag_node_moved(nodes):
+                self._commit_mutation("Move nodes")
+                self.graph_changed.emit()
+            else:
+                self._drop_pending()
+            event.accept()
+            return
+        if self._is_panning and event.button() == self._pan_button:
+            self._finish_pan()
+            event.accept()
+            return
         super().mouseReleaseEvent(event)
+        if event.button() == Qt.MouseButton.LeftButton and self._drag_node is not None:
+            node = self._drag_node
+            self._drag_node = None
+            if self._drag_moved(node):
+                # ONE command per drag; F7: emit graph_changed exactly once here
+                # (a moved node invalidates a loaded run -- positions feed A*).
+                self._commit_mutation("Move node")
+                self.graph_changed.emit()
+            else:
+                self._drop_pending()
 
     def mouseDoubleClickEvent(self, event):
         item = self.itemAt(event.position().toPoint())
@@ -253,6 +532,8 @@ class GraphView(QGraphicsView):
                     edges.append(item)
                 elif isinstance(item, GraphNode):
                     nodes.append(item)
+                elif isinstance(item, WeightChip):
+                    edges.append(item.edge)
                 elif isinstance(item, QGraphicsSimpleTextItem):
                     # Check if it's an edge label
                     for edge in self.edges.values():
@@ -264,7 +545,7 @@ class GraphView(QGraphicsView):
                 QTimer.singleShot(0, lambda e=edges, n=nodes: self._delete_items(e, n))
             return
         super().keyPressEvent(event)
-        
+
     def setup_graph(self):
         # Dynamically position nodes in a circle based on number of nodes
         node_names = ['A', 'B', 'C', 'D', 'E', 'F']
@@ -297,13 +578,27 @@ class GraphView(QGraphicsView):
 
         self.set_graph(graph)
 
-    def set_graph(self, graph):
+    def set_graph(self, graph, fit=True):
+        # ``fit=True`` reframes the viewport around the new content (document
+        # loads); in-place edits pass ``fit=False`` so the user's zoom/pan is
+        # never stomped by an edge tweak, delete, or undo.
+        # Flush pending tweens BEFORE swapping the model: a mid-flight layout
+        # finalize moves the OLD node items, and their itemChange writes
+        # positions through _on_node_moved into self.graph — with the new graph
+        # already assigned, old node ids would corrupt or crash it.
+        self.animator.cancel_all()
+        for node in self.nodes.values():
+            node.stop_pulse()
+
         self.graph = graph
         self.pending_edge_start = None
+        # Every node item is about to be rebuilt; forget any in-flight drag so a
+        # release can't commit against a deleted node. (_pending_before is left
+        # intact: several hooks call set_graph mid-mutation, then commit.)
+        self._drag_node = None
+        self._finish_group_drag()
         self._clear_message()
-        self._invalidate_steps()
 
-        # Clear old scene
         self.scene.clear()
         self.nodes.clear()
         self.edges.clear()
@@ -366,7 +661,10 @@ class GraphView(QGraphicsView):
                 self.edges[self._edge_key(edge.start, edge.end)] = edge_item
                 self.scene.addItem(edge_item)
 
+        self._apply_label_scale()
         self.graph_changed.emit()
+        if fit:
+            self.fit_to_content()
 
     def get_graph(self):
         return self.graph
@@ -376,11 +674,56 @@ class GraphView(QGraphicsView):
             return [(node.id, node.label) for node in self.graph.nodes()]
         return [(node_id, node.name) for node_id, node in self.nodes.items()]
 
+    # ------------------------------------------------------------------
+    # Undo/redo plumbing (Phase 7). A mutation hook captures a whole-graph
+    # snapshot with _begin_mutation, applies its change, then either commits
+    # (diff-guarded push) or drops the pending snapshot on any abort path.
+    # ------------------------------------------------------------------
+    def _begin_mutation(self):
+        self._pending_before = self.graph.to_dict() if self.graph is not None else None
+
+    def _commit_mutation(self, text):
+        before = self._pending_before
+        self._pending_before = None
+        if before is None or self.graph is None or self.undo_stack is None:
+            return
+        after = self.graph.to_dict()
+        if after == before:
+            # Silent no-op (cancelled dialog, rejected rename): keep it off the
+            # stack so undo never replays an unchanged snapshot.
+            return
+        self.undo_stack.push(
+            GraphSnapshotCommand(text, before, after, self._restore_snapshot)
+        )
+
+    def _drop_pending(self):
+        self._pending_before = None
+
+    def _restore_snapshot(self, snapshot):
+        # Rides the existing graph_changed pipeline (controller unload, combos
+        # repopulate, decorations/animations clear) for free. fit=False: undo/redo
+        # must not reframe the viewport the user is working in.
+        self.set_graph(Graph.from_dict(snapshot), fit=False)
+
+    def _drag_moved(self, node):
+        # A drag counts only if the node's live position differs from the
+        # position stored in the before-snapshot (a plain click never moves it).
+        if self._pending_before is None or self.graph is None or sip.isdeleted(node):
+            return False
+        stored = self._pending_before.get("nodes", {}).get(node.node_id)
+        if stored is None:
+            return False
+        pos = node.pos()
+        return pos.x() != stored.get("x") or pos.y() != stored.get("y")
+
+    def _any_drag_node_moved(self, nodes):
+        return any(self._drag_moved(node) for node in nodes)
+
     def add_node_at(self, view_pos):
         if not self.graph:
             return
         self._clear_message()
-        self._invalidate_steps()
+        self._begin_mutation()
         scene_pos = self.mapToScene(view_pos)
 
         # Constrain new node position to scene bounds
@@ -396,21 +739,20 @@ class GraphView(QGraphicsView):
         self.nodes[node_id] = node_item
         self.scene.addItem(node_item)
         self.graph_changed.emit()
+        self._commit_mutation("Add node")
 
     def handle_node_click(self, node_item):
         node_id = node_item.node_id
         if self.pending_edge_start is None:
             self.pending_edge_start = node_id
-            if self.status_panel:
-                self.status_panel.update_status(
-                    f"Selected node {node_item.name} for edge start."
-                )
+            self.status_message.emit(
+                f"Selected node {node_item.name} for edge start.", "text"
+            )
             return
 
         if self.pending_edge_start == node_id:
             self.pending_edge_start = None
-            if self.status_panel:
-                self.status_panel.update_status("Edge start cleared.")
+            self.status_message.emit("Edge start cleared.", "text")
             return
 
         weight, ok = QInputDialog.getDouble(
@@ -423,6 +765,9 @@ class GraphView(QGraphicsView):
             2,
         )
         if ok:
+            # F8: snapshot wraps ONLY the accepted-dialog mutation; every error
+            # path below drops the pending snapshot.
+            self._begin_mutation()
             try:
                 self._clear_message()
                 updated = False
@@ -434,23 +779,33 @@ class GraphView(QGraphicsView):
                         raise
                 if not updated:
                     self.graph.add_edge(self.pending_edge_start, node_id, weight)
-                self.set_graph(self.graph)
-                if self.status_panel:
-                    direction = "->" if self.graph.directed else "--"
-                    start_label = self.graph.get_node_label(self.pending_edge_start)
-                    end_label = self.graph.get_node_label(node_id)
-                    action = "Updated" if updated else "Added"
-                    self.status_panel.update_status(
-                        f"{action} edge {start_label} {direction} {end_label} ({weight})."
-                    )
+                direction = "->" if self.graph.directed else "--"
+                start_label = self.graph.get_node_label(self.pending_edge_start)
+                end_label = self.graph.get_node_label(node_id)
+                action = "Updated" if updated else "Added"
+                self.set_graph(self.graph, fit=False)
+                self.status_message.emit(
+                    f"{action} edge {start_label} {direction} {end_label} ({weight}).",
+                    "text",
+                )
+                self._commit_mutation("Update edge" if updated else "Add edge")
             except Exception as exc:
-                if self.status_panel:
-                    self.status_panel.update_status(str(exc), "#ff5555")
+                self._drop_pending()
+                self.status_message.emit(str(exc), "error")
 
         self.pending_edge_start = None
 
     def _on_node_moved(self, node_item, new_pos):
         node_id = node_item.node_id
+        if self._snap_to_grid and not self._snapping_node and not self._suspend_snap:
+            snapped = self._snap_point(new_pos)
+            if snapped != new_pos:
+                self._snapping_node = True
+                try:
+                    node_item.setPos(snapped)
+                finally:
+                    self._snapping_node = False
+                new_pos = snapped
         if self.graph:
             self.graph.set_node_position(node_id, new_pos.x(), new_pos.y())
         for edge in self.edges.values():
@@ -460,25 +815,7 @@ class GraphView(QGraphicsView):
     def _clear_message(self):
         self.message_changed.emit("")
 
-    def _highlight_no_path(self):
-        for node in self.nodes.values():
-            node.set_state("unused")
-        for edge in self.edges.values():
-            edge.set_state("unused")
-            edge.set_cost_label_color(QColor("red"))
-
-    def _invalidate_steps(self):
-        self.animation_timer.stop()
-        self.current_path = []
-        self.steps = []
-        self.step_index = 0
-        self.visited_order = []
-        self.final_visited_order = []
-        self.step_state = None
-        self.ready_params = None
-        self.finalized = False
-
-    def _label_lookup(self, node_id):
+    def label_lookup(self, node_id):
         if self.graph:
             try:
                 label = self.graph.get_node_label(node_id)
@@ -495,10 +832,8 @@ class GraphView(QGraphicsView):
     def _edge_from_item(self, item):
         if isinstance(item, GraphEdge):
             return item
-        if isinstance(item, QGraphicsSimpleTextItem):
-            for edge in self.edges.values():
-                if edge.label is item:
-                    return edge
+        if isinstance(item, WeightChip):
+            return item.edge
         return None
 
     def _rename_node(self, node_item):
@@ -516,25 +851,26 @@ class GraphView(QGraphicsView):
             return
         label = label.strip()
         if not label:
-            if self.status_panel:
-                self.status_panel.update_status("Node label cannot be empty.", "#ff5555")
+            self.status_message.emit("Node label cannot be empty.", "error")
             return
         for node in self.graph.nodes():
             if node.label == label and node.id != node_item.node_id:
-                if self.status_panel:
-                    self.status_panel.update_status(
-                        f"Node label '{label}' is already in use.",
-                        "#ff5555",
-                    )
+                self.status_message.emit(
+                    f"Node label '{label}' is already in use.",
+                    "error",
+                )
                 return
+        # Snapshot begins only past validation, so cancel / empty / duplicate
+        # rejections push nothing.
+        self._begin_mutation()
         try:
             self.graph.rename_node(node_item.node_id, label)
             node_item.set_label(label)
-            self._invalidate_steps()
             self.graph_changed.emit()
+            self._commit_mutation("Rename node")
         except Exception as exc:
-            if self.status_panel:
-                self.status_panel.update_status(str(exc), "#ff5555")
+            self._drop_pending()
+            self.status_message.emit(str(exc), "error")
 
     def _edit_edge_weight(self, edge_item):
         if not self.graph:
@@ -551,6 +887,7 @@ class GraphView(QGraphicsView):
         )
         if not ok:
             return
+        self._begin_mutation()
         try:
             if self.graph.directed and edge_item.bidirectional:
                 self.graph.update_edge(edge_item.start_node.node_id, edge_item.end_node.node_id, weight)
@@ -558,15 +895,19 @@ class GraphView(QGraphicsView):
             else:
                 self.graph.update_edge(edge_item.start_node.node_id, edge_item.end_node.node_id, weight)
             edge_item.set_weight(weight)
-            self._invalidate_steps()
+            self.graph_changed.emit()
+            self._commit_mutation("Edit weight")
         except Exception as exc:
-            if self.status_panel:
-                self.status_panel.update_status(str(exc), "#ff5555")
+            self._drop_pending()
+            self.status_message.emit(str(exc), "error")
 
     def _remove_node_item(self, node_item):
         if not self.graph:
             return
         self._clear_message()
+        self._begin_mutation()
+        # Flush pending tweens onto still-live items before any removal.
+        self.animator.cancel_all()
         node_id = node_item.node_id
         edges_to_remove = [
             edge_key for edge_key, edge in self.edges.items()
@@ -575,28 +916,29 @@ class GraphView(QGraphicsView):
         try:
             self.graph.remove_node(node_id)
         except Exception as exc:
-            if self.status_panel:
-                self.status_panel.update_status(str(exc), "#ff5555")
+            self._drop_pending()
+            self.status_message.emit(str(exc), "error")
             return
         for edge_key in edges_to_remove:
             edge_item = self.edges.pop(edge_key, None)
             if edge_item:
                 edge_item.dispose()
         self.nodes.pop(node_id, None)
-        # Stop animation and clear graphics effects on node before removal
-        if hasattr(node_item, 'pulse_animation'):
-            node_item.pulse_animation.stop()
-        if hasattr(node_item, 'label') and node_item.label:
-            node_item.label.setGraphicsEffect(None)
+        # Stop pulse before removal. The label carries no effect (Phase 1), so only
+        # the node's own glow effect is cleared (sanctioned end-of-life).
+        node_item.stop_pulse()
         node_item.setGraphicsEffect(None)
         if node_item.scene() is self.scene:
             self.scene.removeItem(node_item)
-        self._invalidate_steps()
+        self.graph_changed.emit()
+        self._commit_mutation("Delete node")
 
     def _remove_edge_item(self, edge_item):
         if not self.graph:
             return
         self._clear_message()
+        self._begin_mutation()
+        self.animator.cancel_all()
         start_id = edge_item.start_node.node_id
         end_id = edge_item.end_node.node_id
         try:
@@ -606,8 +948,8 @@ class GraphView(QGraphicsView):
             else:
                 self.graph.remove_edge(start_id, end_id)
         except Exception as exc:
-            if self.status_panel:
-                self.status_panel.update_status(str(exc), "#ff5555")
+            self._drop_pending()
+            self.status_message.emit(str(exc), "error")
             return
         if edge_item.bidirectional and self.graph.directed:
             edge_key = tuple(sorted([start_id, end_id]))
@@ -616,12 +958,15 @@ class GraphView(QGraphicsView):
         edge_item = self.edges.pop(edge_key, edge_item)
         if edge_item:
             edge_item.dispose()
-        self._invalidate_steps()
+        self.graph_changed.emit()
+        self._commit_mutation("Delete edge")
 
     def _delete_items(self, edges, nodes):
         if not self.graph:
             return
         self._clear_message()
+        self._begin_mutation()
+        self.animator.cancel_all()
 
         # Remove edges first to avoid stale references during node deletion.
         for edge_item in edges:
@@ -647,7 +992,9 @@ class GraphView(QGraphicsView):
                 continue
 
         # Rebuild the scene once to avoid deleting items mid-paint.
-        self.set_graph(self.graph)
+        self.set_graph(self.graph, fit=False)
+        # Diff-guarded: if every removal failed (nothing changed) nothing pushes.
+        self._commit_mutation("Delete selection")
 
     def _edge_key(self, start, end):
         if self.graph and not self.graph.directed:
@@ -671,194 +1018,355 @@ class GraphView(QGraphicsView):
         if self.graph:
             return self.graph.get_nodes()
         return list(self.nodes.keys())
-            
-    def prepare_visualization(self, start_node, target_node, force=False):
-        if (not force and self.ready_params == (start_node, target_node)
-                and self.steps and self.step_index < len(self.steps)):
-            return True
 
-        # Reset all nodes and edges to default state
-        self.reset()
-        self.visited_order = []
-        self.final_visited_order = []
-        self.ready_params = (start_node, target_node)
-        self.finalized = False
+    # ------------------------------------------------------------------
+    # Rendering — the view is a pure renderer of controller RenderFrames.
+    # ------------------------------------------------------------------
+    def render_frame(self, frame):
+        """Render a controller frame.
 
-        if not self.graph:
-            return False
-
-        algorithm = DijkstraAlgorithm()
-        try:
-            result = algorithm.solve(self.graph, {
-                "start": start_node,
-                "target": target_node,
-            })
-        except AlgorithmError as exc:
-            if self.status_panel:
-                self.status_panel.update_status(str(exc), "#ff5555")
-            return False
-
-        self.current_path = result.path or []
-        self.steps = list(algorithm.iter_steps(self.graph, {
-            "start": start_node,
-            "target": target_node,
-        }))
-        self.step_index = 0
-        self.final_visited_order = result.visited_order
-        self.step_state = init_state(self.graph.get_nodes())
-        self.finalized = False
-
-        if not self.current_path:
-            self._highlight_no_path()
-            self.message_changed.emit("No path found.")
-            if self.status_panel:
-                self.status_panel.update_status("No path found.", "#ff5555")
-            return False
-
-        return True
-
-    def start_visualization(self, start_node, target_node):
-        if not self.prepare_visualization(start_node, target_node, force=True):
-            return
-        self.start_playback()
-
-    def start_playback(self):
-        if not self.steps:
-            return
-        if not self.animation_timer.isActive():
-            self.animation_timer.start()
-
-    def pause_playback(self):
-        if self.animation_timer.isActive():
-            self.animation_timer.stop()
-
-    def step_once(self, start_node, target_node):
-        self.pause_playback()
-        if not self.prepare_visualization(start_node, target_node, force=False):
-            return
-        if self.steps:
-            self.animate_step()
-
-    def set_animation_interval(self, interval_ms):
-        self.animation_timer.setInterval(max(50, int(interval_ms)))
-
-    def animate_step(self):
-        if self.step_index >= len(self.steps):
-            self._finalize_visualization()
+        State is always written by the idempotent Phase-1 ``set_state`` pass, so
+        scrubbing/seeking/loading is instantly correct. A forward step layers
+        additive emphasis (pop, travel dot, or the final path stagger) on top.
+        """
+        if not frame.forward_step:
+            # Scrub / seek / load: flush emphasis, then plain instant pass.
+            self.animator.cancel_all()
+            self._render_nodes(frame)
+            self._render_edges(frame)
             return
 
-        step = self.steps[self.step_index]
+        if frame.is_final and frame.path:
+            # Dim non-path items instantly, then stagger the path into "final".
+            if current_theme().animation.final_reveal == "instant":
+                self._render_nodes(frame)
+                self._render_edges(frame)
+            else:
+                self._render_final_staggered(frame)
+            return
+
+        # Ordinary forward step: instant state pass + additive emphasis.
+        self._render_nodes(frame)
+        self._render_edges(frame)
+        self._animate_step_delta(frame)
+
+    def _oriented_curve_path(self, item, source_id):
+        # Edge items for undirected graphs are stored in sorted (start, end)
+        # order, so a relaxation running against that order (source == the item's
+        # END node) would otherwise animate the bolt/comet backwards and land the
+        # impact pop on the wrong end. Reverse the path so pointAtPercent(0) sits
+        # at the relaxation's source.
+        path = item.curve_path()
+        if item.start_node.node_id != source_id:
+            return path.toReversed()
+        return path
+
+    def _animate_step_delta(self, frame):
+        step = frame.step
+        if not step:
+            return
         kind = step.get("kind")
-
-        if self.step_state is not None:
-            apply_step(self.step_state, step)
-            self.visited_order = list(self.step_state.visited)
-
         if kind == "visit":
-            node_id = step.get("node")
-            if node_id in self.nodes:
-                self.nodes[node_id].highlight(is_final_path=False)
-                if node_id not in self.visited_order:
-                    self.visited_order.append(node_id)
+            # A newly-settled current node gets a pop of emphasis.
+            current = frame.current
+            if current is not None and current in self.nodes:
+                self.animator.pop_scale(self.nodes[current], self.animator.scaled(300))
         elif kind == "relax":
-            edge_key = step.get("edge") or (None, None)
-            start, end = edge_key
-            if start and end:
-                edge = self._edge_item_for(start, end)
-                if edge:
-                    edge.highlight(is_final_path=False)
+            # F1: the travel effect fires ONLY when the step carries an edge that
+            # resolves to a live item (bellman-ford's source seed has edge=None).
+            edge = step.get("edge")
+            if edge is not None:
+                item = self._edge_item_for(edge[0], edge[1])
+                if item is not None:
+                    theme = current_theme()
+                    animation = theme.animation
+                    duration = self.animator.scaled(round(340 / animation.motion_scale))
+                    travel_color = (
+                        animation.travel_color
+                        or (
+                            theme.warning
+                            if animation.relax_effect == "lightning"
+                            else theme.edge_style("relaxed").stroke
+                        )
+                    )
+                    impact_color = animation.impact_color or travel_color
+                    badge_flash_color = animation.badge_flash_color or impact_color
+                    travel_path = self._oriented_curve_path(item, edge[0])
+                    if animation.relax_effect == "lightning":
+                        self.animator.lightning(
+                            self.scene, travel_path, travel_color, duration
+                        )
+                    elif animation.relax_effect == "comet":
+                        self.animator.travel_dot(
+                            self.scene, travel_path, travel_color, duration
+                        )
+                    # The weight number flashes the travel/impact color while it passes.
+                    chip = item.label
+                    flash_color = badge_flash_color
 
-        # Update status panel
-        if self.status_panel:
-            self.status_panel.show_path(
-                self.current_path,
-                self.get_total_distance(),
-                self.visited_order,
-                self.get_edge_weight,
-                self._label_lookup,
-            )
+                    def flash(progress, chip=chip, flash_color=flash_color):
+                        if sip.isdeleted(chip):
+                            return
+                        chip.set_flash(None if progress >= 1.0 else flash_color)
 
-        self.step_index += 1
-        if self.step_index >= len(self.steps):
-            self._finalize_visualization()
+                    self.animator.animate_color(("chip-flash", id(item)), duration, flash)
+                    # Pop/flash the destination only near impact, when the
+                    # travel animation visually reaches the receiving node.
+                    target_item = self.nodes.get(step.get("node"))
+                    if target_item is not None:
+                        def impact_pop(progress, node=target_item):
+                            if sip.isdeleted(node):
+                                return
+                            if progress < IMPACT_FLASH_START:
+                                node.setScale(1.0)
+                                return
+                            local = (progress - IMPACT_FLASH_START) / (1.0 - IMPACT_FLASH_START)
+                            if local <= 0.5:
+                                node.setScale(1.0 + 0.12 * (local / 0.5))
+                            else:
+                                node.setScale(1.12 - 0.12 * ((local - 0.5) / 0.5))
 
-    def _finalize_visualization(self):
-        if self.finalized:
-            return
-        if not self.current_path:
-            return
-        self.finalized = True
+                        self.animator.animate_color(
+                            ("node-impact-pop", id(target_item)),
+                            duration,
+                            impact_pop,
+                        )
+                        if animation.impact_ring:
+                            def flash_ring(progress, node=target_item, impact_color=impact_color):
+                                if sip.isdeleted(node):
+                                    return
+                                node.set_ring_flash(
+                                    impact_color if IMPACT_FLASH_START <= progress < 1.0 else None
+                                )
 
-        # After animation completes, highlight the final path in green
-        for edge in self.edges.values():
-            edge.set_state("unused")
-            edge.set_cost_label_color(QColor("red"))
+                            self.animator.animate_color(
+                                ("node-ring-flash", id(target_item)),
+                                duration,
+                                flash_ring,
+                            )
+                        if animation.impact_badge:
+                            def flash_badge(progress, node=target_item, flash_color=badge_flash_color):
+                                if sip.isdeleted(node):
+                                    return
+                                node.set_badge_flash(
+                                    flash_color if IMPACT_FLASH_START <= progress < 1.0 else None
+                                )
 
+                            self.animator.animate_color(
+                                ("node-badge-flash", id(target_item)),
+                                duration,
+                                flash_badge,
+                            )
+
+    def _render_final_staggered(self, frame):
+        final_node_ids = set(frame.path)
+        final_items = set()
+        for start, end in zip(frame.path, frame.path[1:]):
+            item = self._edge_item_for(start, end)
+            if item is not None:
+                final_items.add(item)
+
+        # Badges reflect final distances for every node (never animated).
+        for node_id, node_item in self.nodes.items():
+            distance = frame.distances.get(node_id, INF)
+            node_item.set_distance_text(format_distance(distance))
+            node_item.set_badge_emphasis(False)
+            if node_id not in final_node_ids:
+                node_item.set_state("not_in_path" if distance < INF else "default")
+
+        tree_items = self._items_for(frame.tree_edges)
+        considered_items = self._items_for(frame.considered_edges) - tree_items
+
+        # Non-path edges resolve before the stagger: searched/rejected edges keep
+        # a blue-grey trace, untouched edges stay dark, path edges wait for final.
+        for edge_item in self.edges.values():
+            if edge_item in final_items:
+                continue
+            if edge_item in tree_items or edge_item in considered_items:
+                edge_item.set_state("considered")
+            else:
+                edge_item.set_state("default")
+
+        # Stagger the path node/edge "final" reveal source -> target.
+        callbacks = []
+        path = frame.path
+        for index, node_id in enumerate(path):
+            node_item = self.nodes.get(node_id)
+            if node_item is not None:
+                callbacks.append(lambda n=node_item: (not sip.isdeleted(n)) and n.set_state("final"))
+            if index < len(path) - 1:
+                item = self._edge_item_for(path[index], path[index + 1])
+                if item is not None:
+                    callbacks.append(lambda e=item: (not sip.isdeleted(e)) and e.set_state("final"))
+        if callbacks:
+            self.animator.run_stagger(callbacks, step_ms=self.animator.scaled(120))
+
+    def _render_nodes(self, frame):
+        visited = set(frame.visited)
+        for node_id, node_item in self.nodes.items():
+            distance = frame.distances.get(node_id, INF)
+            if frame.is_final and frame.path and node_id in frame.path:
+                state = "final"
+            elif frame.is_final and frame.path:
+                # Final target view has three tiers: answer path, searched but
+                # not in the answer, and untouched.
+                state = "not_in_path" if distance < INF else "default"
+            elif frame.is_final:
+                state = "unreachable" if distance == INF else "not_in_path"
+            elif node_id == frame.current:
+                state = "current"
+            elif node_id in visited:
+                state = "visited"
+            elif distance < INF:
+                state = "frontier"
+            else:
+                state = "default"
+            node_item.set_state(state)
+            node_item.set_distance_text(format_distance(distance))
+            node_item.set_badge_emphasis(False)
+
+    def _render_edges(self, frame):
+        # F1/F2: resolve ORIENTED event tuples to edge ITEMS, then rank by item
+        # identity. Item-level subtraction kills undirected orientation ghosts.
+        final_items = set()
+        if frame.is_final and frame.path:
+            for start, end in zip(frame.path, frame.path[1:]):
+                item = self._edge_item_for(start, end)
+                if item is not None:
+                    final_items.add(item)
+
+        tree_items = self._items_for(frame.tree_edges)
+        considered_items = self._items_for(frame.considered_edges) - tree_items
+
+        for edge_item in self.edges.values():
+            if frame.is_final and frame.path:
+                if edge_item in final_items:
+                    state = "final"
+                elif edge_item in tree_items or edge_item in considered_items:
+                    state = "considered"
+                else:
+                    state = "default"
+            elif frame.is_final:
+                start_distance = frame.distances.get(edge_item.start_node.node_id, INF)
+                end_distance = frame.distances.get(edge_item.end_node.node_id, INF)
+                if start_distance == INF and end_distance == INF:
+                    state = "unreachable"
+                else:
+                    state = "not_in_path"
+            elif edge_item in tree_items:
+                state = "relaxed"
+            elif edge_item in considered_items:
+                state = "considered"
+            else:
+                state = "default"
+            edge_item.set_state(state)
+
+    def _items_for(self, oriented_edges):
+        items = set()
+        for start, end in oriented_edges:
+            item = self._edge_item_for(start, end)
+            if item is not None:
+                items.add(item)
+        return items
+
+    def clear_run_decorations(self):
+        self.animator.cancel_all()
         for node in self.nodes.values():
-            node.set_state("unused")
+            node.set_state("default")
+            node.set_distance_text(None)
+            node.set_badge_emphasis(False)
+        for edge in self.edges.values():
+            edge.set_state("default")
 
-        for i in range(len(self.current_path) - 1):
-            current = self.current_path[i]
-            next_node = self.current_path[i + 1]
-            self.nodes[current].set_state("final")
-            edge = self._edge_item_for(current, next_node)
-            if edge:
-                edge.highlight(is_final_path=True)
-                edge.set_cost_label_color(QColor("lime"))
+    def set_badges_visible(self, visible):
+        for node in self.nodes.values():
+            node.set_badge_visible(bool(visible))
 
-        # Highlight the last node in the final path
-        self.nodes[self.current_path[-1]].set_state("final")
+    def apply_layout(self, positions, animate=True, duration=600):
+        """Move nodes to ``positions`` (node_id -> (x, y)).
 
-        self.animation_timer.stop()
-        self.playback_finished.emit()
+        ``animate=True`` runs a single 0->1 tween through the AnimationCoordinator
+        (key "layout"): each tick lerps every node's ``setPos``, which drives
+        ``itemChange -> _on_node_moved`` so the model and edges stay synced for
+        free. The coordinator's finalize (``apply(1.0)``) snaps every node to its
+        exact target on natural finish OR on cancel. ``graph_changed`` is emitted
+        EXACTLY ONCE after the tween finishes — positions feed A*'s heuristic, so
+        the run must invalidate, but a per-tick emit would unload it 60x/s — then
+        ``fit_to_content()`` reframes. ``animate=False`` snaps directly.
+        """
+        targets = {
+            node_id: (float(x), float(y))
+            for node_id, (x, y) in positions.items()
+            if node_id in self.nodes
+        }
+        if not targets:
+            return
 
-        # Final status update once animation is fully complete
-        if self.status_panel:
-            visited_order = self.final_visited_order or self.current_path
-            self.status_panel.show_path(
-                self.current_path,
-                self.get_total_distance(),
-                visited_order,
-                self.get_edge_weight,
-                self._label_lookup,
-            )
+        # One command per layout: snapshot before positions move, commit once the
+        # positions land (immediately for animate=False, in the finalize below for
+        # the tween). Diff-guarded, so a layout that changes nothing pushes nothing.
+        # Snap any in-flight layout FIRST so its finalize commits against ITS OWN
+        # snapshot — begin_mutation below must not hand this layout's snapshot to
+        # the older tween's completion (which would also leave this one uncommitted).
+        self.animator.cancel("layout")
+        self._begin_mutation()
+        # A computed layout must land on its EXACT coordinates; grid-snapping
+        # every intermediate/final setPos would quantize and stutter it.
+        self._suspend_snap = True
 
-    def get_total_distance(self):
-        total = 0
-        for i in range(len(self.current_path) - 1):
-            current = self.current_path[i]
-            next_node = self.current_path[i + 1]
-            edge = self._edge_item_for(current, next_node)
-            if edge:
-                total += edge.weight
-        return total
+        if not animate:
+            try:
+                for node_id, (x, y) in targets.items():
+                    item = self.nodes.get(node_id)
+                    if item is not None and not sip.isdeleted(item):
+                        item.setPos(QPointF(x, y))
+            finally:
+                self._suspend_snap = False
+            self.fit_to_content()
+            self.graph_changed.emit()
+            self._commit_mutation("Apply layout")
+            return
+
+        starts = {}
+        for node_id in targets:
+            pos = self.nodes[node_id].pos()
+            starts[node_id] = (pos.x(), pos.y())
+
+        completed = {"done": False}
+
+        def complete_once():
+            # Completion rides the tween's apply(1.0), which the coordinator
+            # guarantees on BOTH natural finish and cancellation (finalize) —
+            # so a theme switch / scrub / set_graph mid-layout still commits
+            # the mutation, invalidates the run, and stays undoable. The flag
+            # dedupes the natural-finish case (last tick + finalize both land
+            # on progress 1.0).
+            if completed["done"]:
+                return
+            completed["done"] = True
+            # Re-enable snapping only after the exact final positions have landed.
+            self._suspend_snap = False
+            self.fit_to_content()
+            self.graph_changed.emit()
+            self._commit_mutation("Apply layout")
+
+        def apply(progress):
+            for node_id, (end_x, end_y) in targets.items():
+                item = self.nodes.get(node_id)
+                if item is None or sip.isdeleted(item):
+                    continue
+                start_x, start_y = starts[node_id]
+                item.setPos(QPointF(
+                    start_x + (end_x - start_x) * progress,
+                    start_y + (end_y - start_y) * progress,
+                ))
+            if progress >= 1.0:
+                complete_once()
+
+        self.animator.animate_float("layout", 0.0, 1.0, duration, apply)
 
     def get_edge_weight(self, start, end):
         edge = self._edge_item_for(start, end)
         if edge:
             return edge.weight
         return 0
-
-    def reset(self):
-        # Stop any ongoing animation
-        self.animation_timer.stop()
-        self.current_path = []
-        self.steps = []
-        self.step_index = 0
-        self.visited_order = []
-        self.final_visited_order = []
-        self.step_state = None
-        self.pending_edge_start = None
-        self._clear_message()
-        self.ready_params = None
-        self.finalized = False
-
-        # Reset all nodes and edges
-        for node in self.nodes.values():
-            node.reset()
-        for edge in self.edges.values():
-            edge.reset()
-
-        # Clear status panel
-        if self.status_panel:
-            self.status_panel.clear()

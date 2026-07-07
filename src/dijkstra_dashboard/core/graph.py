@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from typing import Dict, Iterable, List, Tuple
 
 from .schema import edge_id
@@ -78,8 +79,10 @@ class Graph:
             raise ValueError("Both nodes must exist to add an edge.")
         if start == end:
             raise ValueError("Edge start and end cannot be the same.")
-        if not isinstance(weight, (int, float)):
-            raise ValueError("Edge weight must be numeric.")
+        if not isinstance(weight, (int, float)) or not math.isfinite(weight):
+            # NaN silently disables relaxation (all comparisons are False) and
+            # inf poisons distances, so both are rejected up front.
+            raise ValueError("Edge weight must be a finite number.")
 
         norm_start, norm_end = self._normalize_edge(start, end)
         edge_key = edge_id(norm_start, norm_end, self._directed)
@@ -97,8 +100,8 @@ class Graph:
         del self._edges[edge_key]
 
     def update_edge(self, start: str, end: str, weight: float) -> None:
-        if not isinstance(weight, (int, float)):
-            raise ValueError("Edge weight must be numeric.")
+        if not isinstance(weight, (int, float)) or not math.isfinite(weight):
+            raise ValueError("Edge weight must be a finite number.")
         norm_start, norm_end = self._normalize_edge(start, end)
         edge_key = edge_id(norm_start, norm_end, self._directed)
         if edge_key not in self._edges:

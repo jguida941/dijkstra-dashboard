@@ -1,61 +1,153 @@
-from PyQt6.QtWidgets import QWidget, QHBoxLayout, QComboBox, QPushButton, QSlider, QLabel, QCheckBox
-from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QComboBox, QPushButton, QSlider, QLabel, QCheckBox
+from PyQt6.QtCore import QItemSelectionModel, QTimer, Qt
+from PyQt6.QtGui import QColor, QPalette
+
+from dijkstra_dashboard.ui.theme import current_theme
+
+
+class HighlightComboBox(QComboBox):
+    """QComboBox popup that visibly selects the current row when opened."""
+
+    def showPopup(self):
+        super().showPopup()
+        self._highlight_current_row()
+        QTimer.singleShot(0, self._highlight_current_row)
+
+    def _highlight_current_row(self):
+        row = self.currentIndex()
+        if row < 0:
+            return
+        model_index = self.model().index(row, self.modelColumn(), self.rootModelIndex())
+        view = self.view()
+        view.setCurrentIndex(model_index)
+        selection = view.selectionModel()
+        if selection is not None:
+            selection.select(
+                model_index,
+                QItemSelectionModel.SelectionFlag.ClearAndSelect
+                | QItemSelectionModel.SelectionFlag.Rows,
+            )
+        view.scrollTo(model_index)
+
 
 class ControlsPanel(QWidget):
     def __init__(self):
         super().__init__()
         self.setup_ui()
-        
+        self.refresh_theme(current_theme())
+
     def setup_ui(self):
-        layout = QHBoxLayout()
-        layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        
+        layout = QVBoxLayout()
+
+        # ---- Row 1: algorithm + endpoints + transport controls ----
+        row1 = QHBoxLayout()
+        row1.setAlignment(Qt.AlignmentFlag.AlignLeft)
+
+        # Algorithm selection (objectName-free, non-editable)
+        self.algorithm_combo = HighlightComboBox()
+        row1.addWidget(self.algorithm_combo)
+
         # Start node selection
-        self.start_combo = QComboBox()
+        self.start_combo = HighlightComboBox()
         self.start_combo.addItems(['A', 'B', 'C', 'D', 'E', 'F'])
         self.start_combo.setCurrentText('A')
-        layout.addWidget(self.start_combo)
-        
+        row1.addWidget(self.start_combo)
+
         # Target node selection
-        self.target_combo = QComboBox()
+        self.target_combo = HighlightComboBox()
         self.target_combo.addItems(['A', 'B', 'C', 'D', 'E', 'F'])
         self.target_combo.setCurrentText('F')
-        layout.addWidget(self.target_combo)
+        row1.addWidget(self.target_combo)
 
         # Directed mode toggle
         self.directed_toggle = QCheckBox("Directed")
-        layout.addWidget(self.directed_toggle)
-        
+        row1.addWidget(self.directed_toggle)
+
         # Run button
-        self.run_button = QPushButton("Run Visualization")
-        layout.addWidget(self.run_button)
+        self.run_button = QPushButton("Run")
+        row1.addWidget(self.run_button)
+
+        # Step Back button
+        self.step_back_button = QPushButton("⏮ Back")
+        row1.addWidget(self.step_back_button)
 
         # Step button
         self.step_button = QPushButton("Step")
-        layout.addWidget(self.step_button)
+        row1.addWidget(self.step_button)
 
         # Play/Pause button
         self.play_button = QPushButton("Play")
-        layout.addWidget(self.play_button)
+        row1.addWidget(self.play_button)
 
         # Reset button
         self.reset_button = QPushButton("Reset")
-        layout.addWidget(self.reset_button)
+        row1.addWidget(self.reset_button)
 
-        # Speed slider
-        speed_label = QLabel("Speed")
-        layout.addWidget(speed_label)
+        # Help button
+        self.help_button = QPushButton("Controls")
+        row1.addWidget(self.help_button)
+
+        layout.addLayout(row1)
+
+        # ---- Row 2: timeline scrubber + position + speed ----
+        row2 = QHBoxLayout()
+
+        self.timeline_slider = QSlider(Qt.Orientation.Horizontal)
+        self.timeline_slider.setRange(0, 0)
+        self.timeline_slider.setValue(0)
+        self.timeline_slider.setEnabled(False)
+        row2.addWidget(self.timeline_slider, stretch=1)
+
+        self.position_label = QLabel("0 / 0")
+        row2.addWidget(self.position_label)
+
+        self.speed_label = QLabel("Speed")
+        row2.addWidget(self.speed_label)
+
         self.speed_slider = QSlider(Qt.Orientation.Horizontal)
         self.speed_slider.setRange(1, 10)
         self.speed_slider.setValue(5)
         self.speed_slider.setFixedWidth(120)
-        layout.addWidget(self.speed_slider)
+        row2.addWidget(self.speed_slider)
 
-        # Help button
-        self.help_button = QPushButton("Controls")
-        layout.addWidget(self.help_button)
+        layout.addLayout(row2)
 
-        self.setLayout(layout) 
+        self.setLayout(layout)
+
+    def refresh_theme(self, theme):
+        for combo in (self.algorithm_combo, self.start_combo, self.target_combo):
+            view = combo.view()
+            palette = view.palette()
+            for group in (
+                QPalette.ColorGroup.Active,
+                QPalette.ColorGroup.Inactive,
+                QPalette.ColorGroup.Disabled,
+            ):
+                palette.setColor(group, QPalette.ColorRole.Highlight, QColor(theme.highlight))
+                palette.setColor(group, QPalette.ColorRole.HighlightedText, QColor(theme.highlight_text))
+            view.setPalette(palette)
+            view.setStyleSheet(f"""
+QListView {{
+    background-color: {theme.panel_bg};
+    color: {theme.text};
+    border: {theme.app_style.border_width}px solid {theme.button_border};
+    selection-background-color: {theme.highlight};
+    selection-color: {theme.highlight_text};
+    outline: 0;
+}}
+QListView::item {{
+    min-height: {theme.app_style.control_min_height}px;
+    padding: {theme.app_style.input_padding_y}px {theme.app_style.input_padding_x}px;
+}}
+QListView::item:hover,
+QListView::item:selected,
+QListView::item:selected:active,
+QListView::item:selected:!active {{
+    background-color: {theme.highlight};
+    color: {theme.highlight_text};
+    border-left: 3px solid {theme.accent};
+}}
+""")
 
     def set_nodes(self, nodes):
         current_start = self.start_combo.currentData() or self.start_combo.currentText()
@@ -87,6 +179,45 @@ class ControlsPanel(QWidget):
                 self.target_combo.setCurrentIndex(target_index)
             else:
                 self.target_combo.setCurrentIndex(len(nodes) - 1)
+
+    def set_algorithms(self, items):
+        current = self.algorithm_combo.currentData()
+
+        self.algorithm_combo.clear()
+        for key, display in items:
+            self.algorithm_combo.addItem(display, userData=key)
+
+        if items:
+            index = self.algorithm_combo.findData(current)
+            if index >= 0:
+                self.algorithm_combo.setCurrentIndex(index)
+            else:
+                self.algorithm_combo.setCurrentIndex(0)
+
+    def get_algorithm_name(self):
+        return self.algorithm_combo.currentData()
+
+    def set_timeline(self, total):
+        blocked = self.timeline_slider.blockSignals(True)
+        self.timeline_slider.setRange(0, total)
+        self.timeline_slider.setValue(0)
+        self.timeline_slider.blockSignals(blocked)
+        self.timeline_slider.setEnabled(True)
+        self.position_label.setText(f"0 / {total}")
+
+    def clear_timeline(self):
+        blocked = self.timeline_slider.blockSignals(True)
+        self.timeline_slider.setRange(0, 0)
+        self.timeline_slider.setValue(0)
+        self.timeline_slider.blockSignals(blocked)
+        self.timeline_slider.setEnabled(False)
+        self.position_label.setText("0 / 0")
+
+    def set_timeline_index(self, k):
+        blocked = self.timeline_slider.blockSignals(True)
+        self.timeline_slider.setValue(k)
+        self.timeline_slider.blockSignals(blocked)
+        self.position_label.setText(f"{k} / {self.timeline_slider.maximum()}")
 
     def get_start_node_id(self):
         return self.start_combo.currentData() or self.start_combo.currentText()
