@@ -13,7 +13,7 @@ from PyQt6.QtGui import (
 )
 from PyQt6.QtWidgets import QGraphicsItem, QGraphicsPathItem
 
-from dijkstra_dashboard.ui.theme import EDGE_STATE_ALIASES, EdgeStyle, current_theme
+from dijkstra_dashboard.ui.theme import EDGE_STATE_ALIASES, EdgeStyle, current_theme, lerp_color
 
 
 def _format_weight(value):
@@ -273,6 +273,19 @@ class GraphEdge(QGraphicsPathItem):
         )
         painter.drawPath(self._curve_path)
 
+        core_width = self._core_highlight_width()
+        if core_width > 0:
+            painter.setPen(
+                QPen(
+                    self._core_highlight_color(),
+                    core_width,
+                    Qt.PenStyle.SolidLine,
+                    Qt.PenCapStyle.RoundCap,
+                    Qt.PenJoinStyle.RoundJoin,
+                )
+            )
+            painter.drawPath(self._curve_path)
+
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QBrush(stroke))
         for arrow_path in self._arrow_paths:
@@ -344,6 +357,21 @@ class GraphEdge(QGraphicsPathItem):
         # glow for background states. This keeps custom halos from becoming rails.
         padding = 6 if self._state in {"relaxed", "final"} else 2
         return self._style.width + padding
+
+    def _core_highlight_width(self) -> float:
+        if self._state not in {"relaxed", "final"}:
+            return 0.0
+        return max(1.25, min(self._style.width - 0.4, self._style.width * 0.48))
+
+    def _core_highlight_color(self) -> QColor:
+        stroke = QColor(self._style.stroke)
+        if not stroke.isValid():
+            return QColor("#00000000")
+        theme = current_theme()
+        mix = 0.62 if theme.dark else 0.38
+        color = lerp_color(stroke, QColor("#ffffff"), mix)
+        color.setAlpha(235 if theme.dark else 210)
+        return color
 
     def _resolve_state(self, state):
         theme = current_theme()
