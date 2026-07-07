@@ -5,6 +5,7 @@ from PyQt6.QtWidgets import QGraphicsScene
 import dijkstra_dashboard.ui.graph_edge as graph_edge_module
 from dijkstra_dashboard.ui.graph_edge import GraphEdge
 from dijkstra_dashboard.ui.graph_node import GraphNode
+from dijkstra_dashboard.ui.theme import get_theme_manager
 
 
 @pytest.mark.ui
@@ -113,3 +114,21 @@ def test_weight_chip_trims_integral_floats(qapp):
 
     edge.set_weight(2.5)
     assert edge.label._text == "2.5"
+
+
+@pytest.mark.ui
+def test_transparent_weight_chip_still_masks_bright_edge_under_text(qapp):
+    get_theme_manager().set_theme("neon-dark", persist=False)
+    scene = QGraphicsScene()
+    start = GraphNode("A")
+    end = GraphNode("B")
+    end.setPos(QPointF(120, 0))
+    scene.addItem(start)
+    scene.addItem(end)
+
+    edge = GraphEdge(start, end, 5)
+    scene.addItem(edge)
+    edge.set_state("final")
+
+    assert edge.label._pill_visible() is False
+    assert edge.label._label_shield_color().alpha() > 0

@@ -58,6 +58,26 @@ def test_view_theme_menu_has_exclusive_three_theme_actions(qapp):
 
 
 @pytest.mark.ui
+def test_view_menu_groups_theme_actions_at_top(qapp):
+    window = MainWindow()
+
+    view_menu = next(
+        (action.menu() for action in window.menuBar().actions() if action.menu() and action.menu().title() == "View"),
+        None,
+    )
+    assert view_menu is not None
+
+    actions = view_menu.actions()
+    assert actions[0].menu() is not None
+    assert actions[0].menu().title() == "Theme"
+    assert actions[1].text() == "Edit Theme…"
+    assert actions[2].text() == "Delete Custom Theme…"
+    assert actions[3].isSeparator()
+
+    window.close()
+
+
+@pytest.mark.ui
 def test_view_delete_custom_theme_action_removes_saved_theme(qapp, monkeypatch):
     manager = get_theme_manager()
     manager.save_custom_theme(theme_from_dict({"id": "menu-delete", "name": "Menu Delete"}))

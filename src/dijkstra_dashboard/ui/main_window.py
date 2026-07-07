@@ -219,8 +219,6 @@ class MainWindow(QMainWindow):
         scale = event.size().width() / 1280.0
         if hasattr(self, "inspector"):
             self.inspector.set_font_scale(scale)
-        if hasattr(self, "controls_panel"):
-            self.controls_panel.set_font_scale(scale)
         if hasattr(self, "graph_view"):
             self.graph_view.set_label_scale(scale)
 
@@ -286,6 +284,14 @@ class MainWindow(QMainWindow):
         # Theme submenu rebuilds so new entries appear and stale ones disappear.
         manager.themes_changed.connect(self._rebuild_theme_menu)
 
+        edit_theme_action = QAction("Edit Theme…", self)
+        edit_theme_action.triggered.connect(self.open_theme_editor)
+        view_menu.addAction(edit_theme_action)
+
+        delete_theme_action = QAction("Delete Custom Theme…", self)
+        delete_theme_action.triggered.connect(self.delete_custom_theme)
+        view_menu.addAction(delete_theme_action)
+
         view_menu.addSeparator()
         zoom_in_action = QAction("Zoom In", self)
         zoom_in_action.triggered.connect(self.graph_view.zoom_in)
@@ -309,15 +315,6 @@ class MainWindow(QMainWindow):
         self.show_labels_action.setChecked(True)
         self.show_labels_action.toggled.connect(self.graph_view.set_badges_visible)
         view_menu.addAction(self.show_labels_action)
-
-        view_menu.addSeparator()
-        edit_theme_action = QAction("Edit Theme…", self)
-        edit_theme_action.triggered.connect(self.open_theme_editor)
-        view_menu.addAction(edit_theme_action)
-
-        delete_theme_action = QAction("Delete Custom Theme…", self)
-        delete_theme_action.triggered.connect(self.delete_custom_theme)
-        view_menu.addAction(delete_theme_action)
 
         # Graph menu sits between View and Help.
         graph_menu = self.menuBar().addMenu("Graph")

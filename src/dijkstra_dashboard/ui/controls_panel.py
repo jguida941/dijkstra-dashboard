@@ -1,13 +1,12 @@
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QComboBox, QPushButton, QSlider, QLabel, QCheckBox
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QColor, QPalette
 
 from dijkstra_dashboard.ui.theme import current_theme
 
 class ControlsPanel(QWidget):
     def __init__(self):
         super().__init__()
-        self._font_scale = 1.0
         self.setup_ui()
         self.refresh_theme(current_theme())
 
@@ -90,35 +89,39 @@ class ControlsPanel(QWidget):
         self.setLayout(layout)
 
     def refresh_theme(self, theme):
-        self._apply_fonts(theme)
-
-    def set_font_scale(self, scale):
-        scale = max(1.0, min(1.6, float(scale)))
-        if abs(scale - self._font_scale) < 0.01:
-            return
-        self._font_scale = scale
-        self._apply_fonts(current_theme())
-
-    def _apply_fonts(self, theme):
-        selector_font = theme.display_font(
-            round(12 * self._font_scale), QFont.Weight.DemiBold
-        )
-        control_font = theme.display_font(round(10 * self._font_scale))
         for combo in (self.algorithm_combo, self.start_combo, self.target_combo):
-            combo.setFont(selector_font)
-            combo.view().setFont(selector_font)
-        for widget in (
-            self.directed_toggle,
-            self.run_button,
-            self.step_back_button,
-            self.step_button,
-            self.play_button,
-            self.reset_button,
-            self.help_button,
-            self.position_label,
-            self.speed_label,
-        ):
-            widget.setFont(control_font)
+            view = combo.view()
+            palette = view.palette()
+            for group in (
+                QPalette.ColorGroup.Active,
+                QPalette.ColorGroup.Inactive,
+                QPalette.ColorGroup.Disabled,
+            ):
+                palette.setColor(group, QPalette.ColorRole.Highlight, QColor(theme.highlight))
+                palette.setColor(group, QPalette.ColorRole.HighlightedText, QColor(theme.highlight_text))
+            view.setPalette(palette)
+            view.setStyleSheet(f"""
+QListView {{
+    background-color: {theme.panel_bg};
+    color: {theme.text};
+    border: {theme.app_style.border_width}px solid {theme.button_border};
+    selection-background-color: {theme.highlight};
+    selection-color: {theme.highlight_text};
+    outline: 0;
+}}
+QListView::item {{
+    min-height: {theme.app_style.control_min_height}px;
+    padding: {theme.app_style.input_padding_y}px {theme.app_style.input_padding_x}px;
+}}
+QListView::item:hover,
+QListView::item:selected,
+QListView::item:selected:active,
+QListView::item:selected:!active {{
+    background-color: {theme.highlight};
+    color: {theme.highlight_text};
+    border-left: 3px solid {theme.accent};
+}}
+""")
 
     def set_nodes(self, nodes):
         current_start = self.start_combo.currentData() or self.start_combo.currentText()
