@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 import pytest
 from PyQt6.QtCore import QPointF
 from PyQt6.QtWidgets import QGraphicsScene
@@ -133,3 +135,22 @@ def test_transparent_weight_chip_renders_as_bare_number(qapp):
     assert edge.label._pill_visible() is False
     assert edge.label._style.chip_bg == "#00000000"
     assert edge.label._style.chip_border == "#00000000"
+
+
+@pytest.mark.ui
+def test_edge_halo_color_is_capped_to_translucent_glow(qapp):
+    scene = QGraphicsScene()
+    start = GraphNode("A")
+    end = GraphNode("B")
+    end.setPos(QPointF(120, 0))
+    scene.addItem(start)
+    scene.addItem(end)
+
+    edge = GraphEdge(start, end, 5)
+    scene.addItem(edge)
+    edge._style = replace(edge._style, halo="#ff9966ff")
+
+    assert edge._halo_paint_color().alpha() == 90
+
+    edge._style = replace(edge._style, halo="#4000e5ff")
+    assert edge._halo_paint_color().alpha() == 0x40

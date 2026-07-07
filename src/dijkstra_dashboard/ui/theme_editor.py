@@ -435,7 +435,7 @@ class ThemeEditorDialog(QDialog):
             form.addRow("Text", self._color_row(("node_styles", state, "text"), alpha=False))
             form.addRow("Ring width", self._num_spin(("node_styles", state, "ring_width"), 0.0, 12.0, 0.5))
             form.addRow("Glow", self._nullable_color_row(("node_styles", state, "glow")))
-            form.addRow("Opacity", self._num_spin(("node_styles", state, "opacity"), 0.0, 1.0, 0.05))
+            form.addRow("Opacity", self._num_spin(("node_styles", state, "opacity"), 0.12, 1.0, 0.05))
             layout.addWidget(group)
         layout.addStretch(1)
         return page
@@ -453,7 +453,7 @@ class ThemeEditorDialog(QDialog):
             form.addRow("Width", self._num_spin(("edge_styles", state, "width"), 0.0, 12.0, 0.5))
             form.addRow("Z", self._num_spin(("edge_styles", state, "z"), -5.0, 5.0, 0.1))
             form.addRow("Halo", self._nullable_color_row(("edge_styles", state, "halo")))
-            form.addRow("Opacity", self._num_spin(("edge_styles", state, "opacity"), 0.0, 1.0, 0.05))
+            form.addRow("Opacity", self._num_spin(("edge_styles", state, "opacity"), 0.12, 1.0, 0.05))
             layout.addWidget(group)
         layout.addStretch(1)
         return page
@@ -679,11 +679,22 @@ class ThemeEditorDialog(QDialog):
             self._set_value(path, None)
         else:
             seed_value = self._walk(self._seed, path)
-            restored = seed_value if isinstance(seed_value, str) else "#ff000000"
+            restored = seed_value if isinstance(seed_value, str) else self._nullable_color_fallback(path)
             if row is not None:
                 row.set_value(restored)
                 row.setEnabled(True)
             self._set_value(path, restored)
+
+    def _nullable_color_fallback(self, path):
+        if path and path[-1] == "halo":
+            color = QColor(self._working.get("accent", "#00e5ff"))
+            color.setAlpha(90)
+            return color.name(QColor.NameFormat.HexArgb)
+        if path and path[-1] == "glow":
+            color = QColor(self._working.get("accent", "#00e5ff"))
+            color.setAlpha(128)
+            return color.name(QColor.NameFormat.HexArgb)
+        return self._working.get("warning", "#ffb020")
 
     def _num_spin(self, path, low, high, step):
         spin = QDoubleSpinBox()

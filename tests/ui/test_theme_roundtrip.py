@@ -101,6 +101,19 @@ def test_from_dict_honors_explicit_null_glow_and_halo():
 
 
 @pytest.mark.ui
+def test_from_dict_clamps_graph_opacity_above_invisible():
+    theme = theme_from_dict({
+        "id": "opacity-guard",
+        "name": "Opacity Guard",
+        "node_styles": {"default": {"opacity": 0.0}},
+        "edge_styles": {"default": {"opacity": 0.0}},
+    })
+
+    assert theme.node_styles["default"].opacity == 0.12
+    assert theme.edge_styles["default"].opacity == 0.12
+
+
+@pytest.mark.ui
 def test_from_dict_validates_animation_choices_and_clamps_motion_scale():
     neon = ThemeManager.THEMES["neon-dark"]
     data = {

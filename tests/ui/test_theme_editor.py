@@ -235,6 +235,21 @@ def test_clear_custom_qss_removes_saved_stylesheet_layer(qapp):
 
 
 @pytest.mark.ui
+def test_turning_on_empty_halo_uses_translucent_theme_color(qapp):
+    dialog = ThemeEditorDialog()
+    try:
+        path = ("edge_styles", "default", "halo")
+        dialog._seed["edge_styles"]["default"]["halo"] = None
+        dialog._working["edge_styles"]["default"]["halo"] = None
+
+        dialog._on_none_toggled(path, False)
+
+        assert dialog._working["edge_styles"]["default"]["halo"] == "#5a00e5ff"
+    finally:
+        dialog.reject()
+
+
+@pytest.mark.ui
 def test_import_qss_file_parses_stylesheet(qapp, tmp_path, monkeypatch):
     qss_path = tmp_path / "theme.qss"
     qss_path.write_text(

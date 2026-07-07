@@ -852,6 +852,11 @@ def _pick_int_clamped(data: dict, key: str, default: int, low: int, high: int) -
     return int(max(low, min(high, round(float(value)))))
 
 
+def _pick_float_clamped(data: dict, key: str, default: float, low: float, high: float) -> float:
+    value = float(_pick_num(data, key, default))
+    return max(low, min(high, value))
+
+
 def _pick_nullable_str(data: dict, key: str, default):
     # An explicit ``null`` is honored (glow/halo "none"), distinct from a missing
     # key which defaults to the neon value.
@@ -1044,7 +1049,7 @@ def theme_from_dict(data) -> Theme:
             ring_width=_pick_num(raw, "ring_width", base.ring_width),
             text=_pick_str(raw, "text", base.text),
             glow=_pick_nullable_str(raw, "glow", base.glow),
-            opacity=_pick_num(raw, "opacity", base.opacity),
+            opacity=_pick_float_clamped(raw, "opacity", base.opacity, 0.12, 1.0),
         )
 
     edge_data = data.get("edge_styles")
@@ -1063,7 +1068,7 @@ def theme_from_dict(data) -> Theme:
             chip_bg=_pick_str(raw, "chip_bg", base.chip_bg),
             chip_border=_pick_str(raw, "chip_border", base.chip_border),
             halo=_pick_nullable_str(raw, "halo", base.halo),
-            opacity=_pick_num(raw, "opacity", base.opacity),
+            opacity=_pick_float_clamped(raw, "opacity", base.opacity, 0.12, 1.0),
             z=_pick_num(raw, "z", base.z),
         )
 

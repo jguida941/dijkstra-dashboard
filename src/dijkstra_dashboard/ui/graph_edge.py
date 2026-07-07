@@ -252,7 +252,7 @@ class GraphEdge(QGraphicsPathItem):
         if self._style.halo:
             painter.setPen(
                 QPen(
-                    QColor(self._style.halo),
+                    self._halo_paint_color(),
                     self._style.width + 6,
                     Qt.PenStyle.SolidLine,
                     Qt.PenCapStyle.RoundCap,
@@ -283,7 +283,7 @@ class GraphEdge(QGraphicsPathItem):
             painter.setPen(
                 QPen(
                     accent,
-                    self._style.width + 1,
+                    1.6,
                     Qt.PenStyle.DashLine,
                     Qt.PenCapStyle.RoundCap,
                     Qt.PenJoinStyle.RoundJoin,
@@ -325,6 +325,12 @@ class GraphEdge(QGraphicsPathItem):
         self.label.setOpacity(style.opacity)
         self.update()
         self.label.update()
+
+    def _halo_paint_color(self) -> QColor:
+        halo = QColor(self._style.halo or "#00000000")
+        if halo.alpha() > 90:
+            halo.setAlpha(90)
+        return halo
 
     def _resolve_state(self, state):
         theme = current_theme()
