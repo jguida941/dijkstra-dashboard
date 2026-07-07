@@ -117,7 +117,7 @@ def test_weight_chip_trims_integral_floats(qapp):
 
 
 @pytest.mark.ui
-def test_transparent_weight_chip_still_masks_bright_edge_under_text(qapp):
+def test_transparent_weight_chip_renders_as_bare_number(qapp):
     get_theme_manager().set_theme("neon-dark", persist=False)
     scene = QGraphicsScene()
     start = GraphNode("A")
@@ -131,4 +131,5 @@ def test_transparent_weight_chip_still_masks_bright_edge_under_text(qapp):
     edge.set_state("final")
 
     assert edge.label._pill_visible() is False
-    assert edge.label._label_shield_color().alpha() > 0
+    assert edge.label._style.chip_bg == "#00000000"
+    assert edge.label._style.chip_border == "#00000000"

@@ -68,9 +68,10 @@ def test_neon_final_labels_match_path_cyan_and_non_path_labels_are_gray():
 def test_neon_active_and_final_cyans_keep_original_brightness():
     neon = ThemeManager.THEMES["neon-dark"]
 
-    assert neon.node_styles["frontier"].ring == "#19bfe3"
-    assert neon.node_styles["visited"].ring == "#4f8796"
+    assert neon.node_styles["frontier"].ring == "#00e5ff"
+    assert neon.node_styles["visited"].ring == "#00e5ff"
     assert neon.edge_styles["relaxed"].stroke == "#00e5ff"
+    assert neon.edge_styles["relaxed"].width == 3
     assert neon.edge_styles["final"].stroke == "#00ffff"
 
 

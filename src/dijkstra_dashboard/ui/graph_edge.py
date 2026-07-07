@@ -65,12 +65,6 @@ class WeightChip(QGraphicsItem):
             return True
         return QColor(self._style.chip_bg).alpha() > 0 or QColor(self._style.chip_border).alpha() > 0
 
-    def _label_shield_color(self) -> QColor:
-        """Subtle canvas-color mask that keeps bright strokes out of bare labels."""
-        color = QColor(current_theme().canvas_bg_bottom)
-        color.setAlpha(218 if current_theme().dark else 235)
-        return color
-
     def paint(self, painter, option, widget=None):
         self.boundingRect()
         rect = self._pill_rect
@@ -85,11 +79,6 @@ class WeightChip(QGraphicsItem):
             else:
                 painter.setPen(QPen(QColor(self._style.chip_border), 1.2))
             painter.drawRoundedRect(rect, rect.height() / 2, rect.height() / 2)
-        else:
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QBrush(self._label_shield_color()))
-            shield = rect.adjusted(2, 1, -2, -1)
-            painter.drawRoundedRect(shield, shield.height() / 2, shield.height() / 2)
 
         painter.setPen(QPen(QColor(self._flash_color or self._style.label_fg)))
         painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, self._text)
