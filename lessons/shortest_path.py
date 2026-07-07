@@ -5,6 +5,9 @@ Dijkstra's Shortest Path Algorithm
 A simple implementation of Dijkstra's algorithm to find the shortest path
 between nodes in a weighted graph.
 
+Teaching twin: this readable, heavily commented version is the reference from which
+core/algorithms/dijkstra.py derives the pseudocode shown live in the UI inspector.
+
 Graph Format:
     Dictionary where keys are node names and values are lists of
     (neighbor, weight) tuples representing edges.

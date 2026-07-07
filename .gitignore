@@ -29,6 +29,9 @@ dist/
 .DS_Store
 Thumbs.db
 
+# Agent-harness runtime state
+.claude/
+
 # Local planning docs
 PLAN.md
 plan.md

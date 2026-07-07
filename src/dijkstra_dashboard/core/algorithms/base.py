@@ -48,6 +48,13 @@ class AlgorithmResult:
 
 class PathfindingAlgorithm(ABC):
     spec: AlgorithmSpec
+    pseudocode: list[str] = []
+    step_line_map: dict = {}
+
+    @classmethod
+    def lines_for_step(cls, step) -> list[int]:
+        reason = (step.get("payload") or {}).get("reason")
+        return list(cls.step_line_map.get((step.get("kind"), reason), []))
 
     @abstractmethod
     def solve(self, graph, params: dict) -> AlgorithmResult:

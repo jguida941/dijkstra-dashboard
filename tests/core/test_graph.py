@@ -38,3 +38,20 @@ def test_set_directed_roundtrip(sample_graph):
     assert sample_graph.directed is True
     sample_graph.set_directed(False)
     assert sample_graph.directed is False
+
+
+def test_add_edge_rejects_non_finite_weight(empty_graph):
+    empty_graph.add_node('A')
+    empty_graph.add_node('B')
+    for bad in (float('nan'), float('inf'), float('-inf')):
+        with pytest.raises(ValueError):
+            empty_graph.add_edge('A', 'B', bad)
+
+
+def test_update_edge_rejects_non_finite_weight(empty_graph):
+    empty_graph.add_node('A')
+    empty_graph.add_node('B')
+    empty_graph.add_edge('A', 'B', 2)
+    for bad in (float('nan'), float('inf')):
+        with pytest.raises(ValueError):
+            empty_graph.update_edge('A', 'B', bad)
