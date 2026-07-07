@@ -87,6 +87,9 @@ class GraphView(QGraphicsView):
         self.undo_stack = None
         self._pending_before = None
         self._drag_node = None
+        self._drag_nodes = []
+        self._group_drag_start_scene = None
+        self._group_drag_origins = {}
 
         get_theme_manager().theme_changed.connect(self._on_theme_changed)
 
@@ -295,6 +298,41 @@ class GraphView(QGraphicsView):
         self._pan_last_pos = None
         self._set_pan_cursor(False)
 
+    def _selected_nodes(self):
+        return [
+            item for item in self.scene.selectedItems()
+            if isinstance(item, GraphNode) and not sip.isdeleted(item)
+        ]
+
+    def _toggle_group_selection(self, node):
+        node.setSelected(not node.isSelected())
+        count = len(self._selected_nodes())
+        noun = "node" if count == 1 else "nodes"
+        self.status_message.emit(f"{count} {noun} selected for group move.", "text")
+
+    def _start_group_drag(self, node, event):
+        selected = self._selected_nodes()
+        if node not in selected:
+            selected.append(node)
+            node.setSelected(True)
+        if len(selected) < 2:
+            return False
+        self._begin_mutation()
+        self._drag_node = node
+        self._drag_nodes = selected
+        self._group_drag_start_scene = self.mapToScene(event.position().toPoint())
+        self._group_drag_origins = {item: QPointF(item.pos()) for item in selected}
+        self._set_pan_cursor(True)
+        event.accept()
+        return True
+
+    def _finish_group_drag(self):
+        self._set_pan_cursor(False)
+        self._drag_node = None
+        self._drag_nodes = []
+        self._group_drag_start_scene = None
+        self._group_drag_origins = {}
+
     def _should_start_pan(self, event, item):
         button = event.button()
         if button in (Qt.MouseButton.RightButton, Qt.MouseButton.MiddleButton):
@@ -333,6 +371,11 @@ class GraphView(QGraphicsView):
 
         if event.button() == Qt.MouseButton.LeftButton:
             if isinstance(item, GraphNode):
+                if event.modifiers() & Qt.KeyboardModifier.MetaModifier:
+                    self.pending_edge_start = None
+                    self._toggle_group_selection(item)
+                    event.accept()
+                    return
                 if self.pending_edge_start is not None:
                     self.handle_node_click(item)
                     return
@@ -342,6 +385,8 @@ class GraphView(QGraphicsView):
                     or event.modifiers() & Qt.KeyboardModifier.ShiftModifier
                 ):
                     self.handle_node_click(item)
+                    return
+                if item.isSelected() and self._start_group_drag(item, event):
                     return
                 # F8: a plain left press on a node (no modifiers, no pending
                 # edge-start) falls through to a real drag -- snapshot now;
@@ -356,6 +401,14 @@ class GraphView(QGraphicsView):
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
+        if self._drag_nodes and self._group_drag_start_scene is not None:
+            scene_pos = self.mapToScene(event.position().toPoint())
+            delta = scene_pos - self._group_drag_start_scene
+            for node, origin in list(self._group_drag_origins.items()):
+                if not sip.isdeleted(node):
+                    node.setPos(origin + delta)
+            event.accept()
+            return
         if self._is_panning and self._pan_last_pos is not None:
             pos = event.position().toPoint()
             delta = pos - self._pan_last_pos
@@ -367,6 +420,16 @@ class GraphView(QGraphicsView):
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton and self._drag_nodes:
+            nodes = list(self._drag_nodes)
+            self._finish_group_drag()
+            if self._any_drag_node_moved(nodes):
+                self._commit_mutation("Move nodes")
+                self.graph_changed.emit()
+            else:
+                self._drop_pending()
+            event.accept()
+            return
         if self._is_panning and event.button() == self._pan_button:
             self._finish_pan()
             event.accept()
@@ -478,6 +541,7 @@ class GraphView(QGraphicsView):
         # release can't commit against a deleted node. (_pending_before is left
         # intact: several hooks call set_graph mid-mutation, then commit.)
         self._drag_node = None
+        self._finish_group_drag()
         self._clear_message()
 
         self.scene.clear()
@@ -594,6 +658,9 @@ class GraphView(QGraphicsView):
             return False
         pos = node.pos()
         return pos.x() != stored.get("x") or pos.y() != stored.get("y")
+
+    def _any_drag_node_moved(self, nodes):
+        return any(self._drag_moved(node) for node in nodes)
 
     def add_node_at(self, view_pos):
         if not self.graph:

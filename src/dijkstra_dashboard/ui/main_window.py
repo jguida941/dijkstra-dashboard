@@ -144,6 +144,7 @@ class MainWindow(QMainWindow):
             "Add edge: Ctrl/Option/Shift+click two nodes\n"
             "Directed arrows: selection order sets direction\n"
             "Remove: select node/edge, press Delete\n"
+            "Move group: Cmd+click nodes, drag selection\n"
             "Pan: drag empty canvas, right-drag, or middle-drag"
         )
 
@@ -698,6 +699,8 @@ class MainWindow(QMainWindow):
             "- Undirected: edges are bidirectional with one weight\n"
             "- Two-way different weights: enable Directed and add A → B then B → A\n"
             "- Drag node: move\n"
+            "- Cmd + click nodes: select multiple for group move\n"
+            "- Drag selected node: move selected group\n"
             "- Double-click node: rename\n"
             "- Double-click edge/weight: edit weight\n"
             "- Select node/edge + Delete: remove\n"

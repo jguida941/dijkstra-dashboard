@@ -44,8 +44,8 @@ read.
 - **A\***: Dijkstra guided by a spatial (Euclidean) heuristic scaled to stay admissible (see below).
 
 ### Graph editing
-- Add nodes, connect them with weighted edges, rename nodes, edit weights, drag to reposition, and delete -
-  all directly on the canvas.
+- Add nodes, connect them with weighted edges, rename nodes, edit weights, drag to reposition, select
+  multiple nodes for group moves, and delete, all directly on the canvas.
 - **Undirected** or **directed** mode (directed uses selection order for arrow direction; add reverse edges
   for two-way paths with different weights).
 - **Open / Save / Save As** graphs as JSON (node positions, labels, weights, and directed/undirected mode
@@ -119,6 +119,7 @@ Editing gestures and keyboard shortcuts (the in-app **Help → Controls** dialog
 | Rename node | Double-click a node |
 | Edit edge weight | Double-click an edge or its weight chip |
 | Move node | Drag the node |
+| Move multiple nodes | Cmd-click nodes to select them, then drag any selected node |
 | Remove node / edge | Select it and press Delete (or Backspace) |
 | Pan the view | Drag empty canvas, right-drag, or middle-drag |
 | Zoom | Mouse wheel (anchored under the cursor), or the +/- / 100% overlay buttons |

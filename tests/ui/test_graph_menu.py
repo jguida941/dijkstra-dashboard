@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 from PyQt6.QtCore import QEvent, QPointF, QSettings, Qt
-from PyQt6.QtGui import QMouseEvent
+from PyQt6.QtGui import QMouseEvent, QUndoStack
 from PyQt6.QtWidgets import QDialog, QMessageBox
 
 import dijkstra_dashboard.ui.main_window as mw_module
@@ -145,6 +145,84 @@ def test_empty_canvas_left_drag_pans_view(qapp, qtbot, monkeypatch):
         )
     )
     assert not view._is_panning
+
+
+def test_cmd_click_toggles_node_group_selection(qapp, qtbot, monkeypatch):
+    view = GraphView()
+    qtbot.addWidget(view)
+    node = view.nodes["A"]
+    monkeypatch.setattr(view, "itemAt", lambda *args, **kwargs: node)
+
+    view.mousePressEvent(
+        _mouse_event(
+            QEvent.Type.MouseButtonPress,
+            (210, 160),
+            Qt.MouseButton.LeftButton,
+            modifiers=Qt.KeyboardModifier.MetaModifier,
+        )
+    )
+
+    assert node.isSelected()
+    assert view.pending_edge_start is None
+    assert view._pending_before is None
+
+
+def test_dragging_selected_node_moves_selected_group_and_commits_once(qapp, qtbot, monkeypatch):
+    view = GraphView()
+    qtbot.addWidget(view)
+    view.undo_stack = QUndoStack()
+    node_a = view.nodes["A"]
+    node_b = view.nodes["B"]
+    node_a.setSelected(True)
+    node_b.setSelected(True)
+    start_a = QPointF(node_a.pos())
+    start_b = QPointF(node_b.pos())
+    monkeypatch.setattr(view, "itemAt", lambda *args, **kwargs: node_a)
+
+    view.mousePressEvent(
+        _mouse_event(
+            QEvent.Type.MouseButtonPress,
+            (210, 160),
+            Qt.MouseButton.LeftButton,
+        )
+    )
+    assert set(view._drag_nodes) == {node_a, node_b}
+
+    view.mouseMoveEvent(
+        _mouse_event(
+            QEvent.Type.MouseMove,
+            (250, 185),
+            Qt.MouseButton.NoButton,
+            Qt.MouseButton.LeftButton,
+        )
+    )
+    delta_a = node_a.pos() - start_a
+    delta_b = node_b.pos() - start_b
+    assert delta_a.x() == pytest.approx(delta_b.x())
+    assert delta_a.y() == pytest.approx(delta_b.y())
+    assert (delta_a.x(), delta_a.y()) != pytest.approx((0, 0))
+
+    emitted = []
+    view.graph_changed.connect(lambda: emitted.append(1))
+    view.mouseReleaseEvent(
+        _mouse_event(
+            QEvent.Type.MouseButtonRelease,
+            (250, 185),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.NoButton,
+        )
+    )
+
+    assert emitted == [1]
+    assert view.undo_stack.index() == 1
+    assert view.undo_stack.command(0).text() == "Move nodes"
+    assert view._drag_nodes == []
+
+    view.undo_stack.undo()
+    assert view.nodes["A"].pos().x() == pytest.approx(start_a.x())
+    assert view.nodes["A"].pos().y() == pytest.approx(start_a.y())
+    assert view.nodes["B"].pos().x() == pytest.approx(start_b.x())
+    assert view.nodes["B"].pos().y() == pytest.approx(start_b.y())
 
 
 def test_file_menu_has_export_and_open_recent(qapp, tmp_path):
