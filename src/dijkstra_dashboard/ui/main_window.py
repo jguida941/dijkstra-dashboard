@@ -269,16 +269,22 @@ class MainWindow(QMainWindow):
         export_svg_action.setEnabled(HAS_SVG)
         file_menu.addAction(export_svg_action)
 
-        # Edit menu sits between File and View. These are auto enable/disable +
-        # auto-labelled undo/redo actions with window-level Ctrl+Z / Ctrl+Y
-        # shortcuts; no Phase-4 focus guard is needed (no plain-key collision).
+        # Edit menu sits between File and View. Keep labels stable across Qt
+        # builds; the stack still owns enabled state and the undo/redo behavior.
         edit_menu = self.menuBar().addMenu("Edit")
-        undo_action = self.undo_stack.createUndoAction(self, "Undo")
-        undo_action.setShortcut(QKeySequence.StandardKey.Undo)
-        edit_menu.addAction(undo_action)
-        redo_action = self.undo_stack.createRedoAction(self, "Redo")
-        redo_action.setShortcut(QKeySequence.StandardKey.Redo)
-        edit_menu.addAction(redo_action)
+        self.undo_action = QAction("Undo", self)
+        self.undo_action.setShortcut(QKeySequence.StandardKey.Undo)
+        self.undo_action.setEnabled(self.undo_stack.canUndo())
+        self.undo_action.triggered.connect(self.undo_stack.undo)
+        self.undo_stack.canUndoChanged.connect(self.undo_action.setEnabled)
+        edit_menu.addAction(self.undo_action)
+
+        self.redo_action = QAction("Redo", self)
+        self.redo_action.setShortcut(QKeySequence.StandardKey.Redo)
+        self.redo_action.setEnabled(self.undo_stack.canRedo())
+        self.redo_action.triggered.connect(self.undo_stack.redo)
+        self.undo_stack.canRedoChanged.connect(self.redo_action.setEnabled)
+        edit_menu.addAction(self.redo_action)
 
         view_menu = self.menuBar().addMenu("View")
         self.theme_menu = view_menu.addMenu("Theme")
