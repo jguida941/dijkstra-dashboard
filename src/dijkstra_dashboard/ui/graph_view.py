@@ -12,6 +12,7 @@ import math
 
 INF = float("inf")
 IMPACT_FLASH_START = 0.84
+FIT_MARGIN = 36.0
 
 
 def format_distance(value):
@@ -216,7 +217,10 @@ class GraphView(QGraphicsView):
         rect = self.scene.itemsBoundingRect()
         if rect.isEmpty():
             return
-        self.fitInView(rect.adjusted(-60, -60, 60, 60), Qt.AspectRatioMode.KeepAspectRatio)
+        self.fitInView(
+            rect.adjusted(-FIT_MARGIN, -FIT_MARGIN, FIT_MARGIN, FIT_MARGIN),
+            Qt.AspectRatioMode.KeepAspectRatio,
+        )
         self.zoom_level = self.transform().m11()
 
     def set_tween_interval(self, ms):

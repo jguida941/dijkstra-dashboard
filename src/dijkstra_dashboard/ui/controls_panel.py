@@ -1,10 +1,15 @@
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QComboBox, QPushButton, QSlider, QLabel, QCheckBox
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QFont
+
+from dijkstra_dashboard.ui.theme import current_theme
 
 class ControlsPanel(QWidget):
     def __init__(self):
         super().__init__()
+        self._font_scale = 1.0
         self.setup_ui()
+        self.refresh_theme(current_theme())
 
     def setup_ui(self):
         layout = QVBoxLayout()
@@ -71,8 +76,8 @@ class ControlsPanel(QWidget):
         self.position_label = QLabel("0 / 0")
         row2.addWidget(self.position_label)
 
-        speed_label = QLabel("Speed")
-        row2.addWidget(speed_label)
+        self.speed_label = QLabel("Speed")
+        row2.addWidget(self.speed_label)
 
         self.speed_slider = QSlider(Qt.Orientation.Horizontal)
         self.speed_slider.setRange(1, 10)
@@ -83,6 +88,37 @@ class ControlsPanel(QWidget):
         layout.addLayout(row2)
 
         self.setLayout(layout)
+
+    def refresh_theme(self, theme):
+        self._apply_fonts(theme)
+
+    def set_font_scale(self, scale):
+        scale = max(1.0, min(1.6, float(scale)))
+        if abs(scale - self._font_scale) < 0.01:
+            return
+        self._font_scale = scale
+        self._apply_fonts(current_theme())
+
+    def _apply_fonts(self, theme):
+        selector_font = theme.display_font(
+            round(12 * self._font_scale), QFont.Weight.DemiBold
+        )
+        control_font = theme.display_font(round(10 * self._font_scale))
+        for combo in (self.algorithm_combo, self.start_combo, self.target_combo):
+            combo.setFont(selector_font)
+            combo.view().setFont(selector_font)
+        for widget in (
+            self.directed_toggle,
+            self.run_button,
+            self.step_back_button,
+            self.step_button,
+            self.play_button,
+            self.reset_button,
+            self.help_button,
+            self.position_label,
+            self.speed_label,
+        ):
+            widget.setFont(control_font)
 
     def set_nodes(self, nodes):
         current_start = self.start_combo.currentData() or self.start_combo.currentText()

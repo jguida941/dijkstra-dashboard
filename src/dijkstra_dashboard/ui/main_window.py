@@ -185,6 +185,7 @@ class MainWindow(QMainWindow):
         manager = get_theme_manager()
         manager.theme_changed.connect(self.apply_theme)
         manager.theme_changed.connect(self.inspector.refresh_theme)
+        manager.theme_changed.connect(self.controls_panel.refresh_theme)
         self.apply_theme(current_theme())
 
         self.on_speed_changed(self.controls_panel.speed_slider.value())
@@ -218,6 +219,8 @@ class MainWindow(QMainWindow):
         scale = event.size().width() / 1280.0
         if hasattr(self, "inspector"):
             self.inspector.set_font_scale(scale)
+        if hasattr(self, "controls_panel"):
+            self.controls_panel.set_font_scale(scale)
         if hasattr(self, "graph_view"):
             self.graph_view.set_label_scale(scale)
 

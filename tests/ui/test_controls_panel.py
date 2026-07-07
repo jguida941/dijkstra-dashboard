@@ -45,3 +45,16 @@ def test_set_timeline_index_writes_without_emitting(qapp):
     assert emissions == []  # blockSignals guard prevents the frame->slider->seek loop
     assert panel.timeline_slider.value() == 4
     assert panel.position_label.text() == "4 / 10"
+
+
+def test_selector_fonts_are_larger_and_scale(qapp):
+    panel = ControlsPanel()
+    base_selector = panel.algorithm_combo.font().pointSize()
+    base_button = panel.run_button.font().pointSize()
+
+    assert base_selector > base_button
+
+    panel.set_font_scale(1.5)
+
+    assert panel.algorithm_combo.font().pointSize() > base_selector
+    assert panel.algorithm_combo.view().font().pointSize() == panel.algorithm_combo.font().pointSize()
