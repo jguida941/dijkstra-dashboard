@@ -3,7 +3,10 @@
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://python.org)
 [![PyQt6](https://img.shields.io/badge/PyQt6-GUI-green.svg)](https://pypi.org/project/PyQt6/)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Algorithm](https://img.shields.io/badge/Algorithm-Dijkstra-orange.svg)](https://en.wikipedia.org/wiki/Dijkstra%27s_algorithm)
+[![Dijkstra](https://img.shields.io/badge/Algorithm-Dijkstra-orange.svg)](https://en.wikipedia.org/wiki/Dijkstra%27s_algorithm)
+[![BFS](https://img.shields.io/badge/Algorithm-BFS-blueviolet.svg)](https://en.wikipedia.org/wiki/Breadth-first_search)
+[![Bellman-Ford](https://img.shields.io/badge/Algorithm-Bellman--Ford-ff69b4.svg)](https://en.wikipedia.org/wiki/Bellman%E2%80%93Ford_algorithm)
+[![A*](https://img.shields.io/badge/Algorithm-A%2A-teal.svg)](https://en.wikipedia.org/wiki/A*_search_algorithm)
 [![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows%20%7C%20Linux-red.svg)]()
 [![Graph Theory](https://img.shields.io/badge/Graph_Theory-Shortest_Path-purple.svg)]()
 
