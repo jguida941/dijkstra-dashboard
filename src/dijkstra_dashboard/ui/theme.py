@@ -629,6 +629,57 @@ def _build_themes() -> dict[str, Theme]:
                 motion_scale=0.9,
             ),
         ),
+        # Traffic-light teaching palette: when a run ends, the chosen path turns
+        # green and every edge/node the algorithm rejected turns red, so
+        # "right path vs. wrong paths" is readable at a glance from the back of
+        # a classroom. Unreachable elements go a darker brick red.
+        "classroom": Theme(
+            id="classroom",
+            name="Classroom",
+            dark=False,
+            canvas_bg_top="#ffffff",
+            canvas_bg_bottom="#f1f5f9",
+            window_bg="#f8fafc",
+            panel_bg="#ffffff",
+            base_bg="#ffffff",
+            text="#0f172a",
+            muted_text="#64748b",
+            accent="#2563eb",
+            success="#16a34a",
+            error="#dc2626",
+            warning="#d97706",
+            button_bg="#f1f5f9",
+            button_text="#0f172a",
+            button_border="#cbd5e1",
+            highlight="#2563eb",
+            highlight_text="#ffffff",
+            font_pref=("Helvetica Neue", "Arial"),
+            glow_enabled=False,
+            node_styles={
+                "default": NodeStyle(fill="#ffffff", ring="#94a3b8", ring_width=2, text="#0f172a"),
+                "frontier": NodeStyle(fill="#dbeafe", ring="#3b82f6", ring_width=2, text="#1e3a8a"),
+                "current": NodeStyle(fill="#2563eb", ring="#0f172a", ring_width=3, text="#ffffff"),
+                "visited": NodeStyle(fill="#e2e8f0", ring="#64748b", ring_width=2.5, text="#334155"),
+                "final": NodeStyle(fill="#dcfce7", ring="#16a34a", ring_width=3, text="#14532d"),
+                "not_in_path": NodeStyle(fill="#fee2e2", ring="#dc2626", ring_width=2.5, text="#7f1d1d", opacity=0.9),
+                "unreachable": NodeStyle(fill="#7f1d1d", ring="#b91c1c", ring_width=2.5, text="#fecaca"),
+            },
+            edge_styles={
+                "default": EdgeStyle(stroke="#94a3b8", width=2, label_fg="#334155", chip_bg="#e6ffffff", chip_border="#cbd5e1", z=0),
+                "considered": EdgeStyle(stroke="#60a5fa", width=2, label_fg="#1e3a8a", chip_bg="#e6dbeafe", chip_border="#60a5fa", z=0.2),
+                "relaxed": EdgeStyle(stroke="#2563eb", width=2.5, label_fg="#1e3a8a", chip_bg="#e6dbeafe", chip_border="#2563eb", z=0.5),
+                "final": EdgeStyle(stroke="#16a34a", width=4, label_fg="#16a34a", chip_bg="#e6dcfce7", chip_border="#16a34a", halo="#4016a34a", z=1),
+                "not_in_path": EdgeStyle(stroke="#dc2626", width=2.5, label_fg="#991b1b", chip_bg="#e6fee2e2", chip_border="#dc2626", opacity=0.85, z=0.3),
+                "unreachable": EdgeStyle(stroke="#7f1d1d", width=2, label_fg="#7f1d1d", chip_bg="#e6fecaca", chip_border="#7f1d1d", z=0),
+            },
+            animation=AnimationStyle(
+                relax_effect="comet",
+                impact_ring=True,
+                impact_badge=True,
+                final_reveal="stagger",
+                motion_scale=0.9,
+            ),
+        ),
     }
 
 

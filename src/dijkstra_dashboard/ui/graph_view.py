@@ -1177,13 +1177,14 @@ class GraphView(QGraphicsView):
         tree_items = self._items_for(frame.tree_edges)
         considered_items = self._items_for(frame.considered_edges) - tree_items
 
-        # Non-path edges resolve before the stagger: searched/rejected edges keep
-        # a blue-grey trace, untouched edges stay dark, path edges wait for final.
+        # Non-path edges resolve before the stagger: searched-but-rejected edges
+        # get the not_in_path treatment (matching their nodes), untouched edges
+        # stay dark, path edges wait for final.
         for edge_item in self.edges.values():
             if edge_item in final_items:
                 continue
             if edge_item in tree_items or edge_item in considered_items:
-                edge_item.set_state("considered")
+                edge_item.set_state("not_in_path")
             else:
                 edge_item.set_state("default")
 
@@ -1243,7 +1244,9 @@ class GraphView(QGraphicsView):
                 if edge_item in final_items:
                     state = "final"
                 elif edge_item in tree_items or edge_item in considered_items:
-                    state = "considered"
+                    # Searched but rejected: same tier as not_in_path nodes, so
+                    # themes can contrast "the answer" against "explored, not chosen".
+                    state = "not_in_path"
                 else:
                     state = "default"
             elif frame.is_final:

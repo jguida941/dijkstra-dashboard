@@ -31,7 +31,7 @@ def test_theme_change_updates_application_palette(qapp):
 
 
 @pytest.mark.ui
-def test_view_theme_menu_has_exclusive_three_theme_actions(qapp):
+def test_view_theme_menu_has_exclusive_builtin_theme_actions(qapp):
     window = MainWindow()
 
     view_menu = next(
@@ -47,11 +47,11 @@ def test_view_theme_menu_has_exclusive_three_theme_actions(qapp):
     assert theme_menu is not None
 
     actions = theme_menu.actions()
-    assert len(actions) == 3
+    assert len(actions) == 4
     assert all(action.isCheckable() for action in actions)
     assert len({action.actionGroup() for action in actions}) == 1
     assert actions[0].actionGroup().isExclusive()
-    assert [action.text() for action in actions] == ["Neon Dark", "Midnight", "Paper Light"]
+    assert [action.text() for action in actions] == ["Neon Dark", "Midnight", "Paper Light", "Classroom"]
     assert actions[0].isChecked()
 
     window.close()

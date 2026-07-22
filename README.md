@@ -73,9 +73,12 @@ read.
 - **Recent files**: the File menu keeps the last eight graphs you opened or saved.
 
 ### Themes
-- **Neon Dark**, **Midnight**, and **Paper Light**: switch live from the View -> Theme menu; your choice is
-  persisted between sessions.
+- **Neon Dark**, **Midnight**, **Paper Light**, and **Classroom**: switch live from the View -> Theme menu;
+  your choice is persisted between sessions.
 - **Paper Light** uses the **Okabe-Ito** colorblind-safe palette.
+- **Classroom** is a traffic-light teaching theme: when a run finishes, the chosen shortest path turns
+  **green** and every edge and node the algorithm rejected turns **red** (unreachable ones a darker brick
+  red), so "right path vs. wrong paths" is readable at a glance.
 - **Theme Studio**: open View -> Edit Theme... to tune canvas colors, node states, edge states, Qt borders,
   radii, padding, sliders, scrollbars, splitter handles, and animation colors.
 - **Custom themes**: save edited themes, import/export theme JSON, paste JSON, import/paste Qt stylesheet
@@ -85,9 +88,26 @@ read.
 - **Animation controls**: choose the relax effect, final reveal style, motion scale, travel color, impact
   color, badge flash color, and whether node rings or badges flash when an animation hits.
 
+## Quick start
+
+The fastest way to run the app on **macOS, Windows, or Linux** is the bundled launcher.
+It creates a project-local virtual environment, installs the app into it, and starts the
+GUI — all from one command. The first run does the setup (about a minute); every run after
+that starts instantly.
+
+```bash
+python launch.py        # macOS / Linux
+py launch.py            # Windows
+```
+
+You can run it with any Python 3.10+ interpreter — the app itself always runs from the
+dedicated `.venv` the launcher builds, so a broken or partial system PyQt6 install can't
+interfere with startup.
+
 ## Installation
 
-**Requirements:** Python >= 3.10. The only runtime dependency is **PyQt6** (`>= 6.4.0`).
+Prefer to manage the environment yourself? **Requirements:** Python >= 3.10. The only
+runtime dependency is **PyQt6** (`>= 6.4.0`).
 
 ```bash
 python -m venv .venv

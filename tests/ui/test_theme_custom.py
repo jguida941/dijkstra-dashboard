@@ -164,7 +164,7 @@ def test_load_custom_themes_skips_invalid_files():
     fresh = ThemeManager()
     fresh.load_custom_themes()  # must not raise
 
-    assert set(fresh.theme_ids()) == {"neon-dark", "midnight", "paper-light", "valid-one"}
+    assert set(fresh.theme_ids()) == {"neon-dark", "midnight", "paper-light", "classroom", "valid-one"}
 
 
 @pytest.mark.ui
