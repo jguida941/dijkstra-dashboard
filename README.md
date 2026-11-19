@@ -100,6 +100,10 @@ python launch.py        # macOS / Linux
 py launch.py            # Windows
 ```
 
+On **macOS**, you can also double-click **`launch.command`** in Finder. It uses
+`python3` (3.10+) to run the same launcher and keeps the Terminal open if startup
+fails.
+
 You can run it with any Python 3.10+ interpreter — the app itself always runs from the
 dedicated `.venv` the launcher builds, so a broken or partial system PyQt6 install can't
 interfere with startup.
