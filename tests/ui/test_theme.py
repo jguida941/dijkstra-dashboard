@@ -17,10 +17,10 @@ from dijkstra_dashboard.ui.theme import (
 
 
 @pytest.mark.ui
-def test_three_themes_registered_with_default_neon_dark():
+def test_builtin_themes_registered_with_default_neon_dark():
     manager = ThemeManager()
 
-    assert set(manager.theme_ids()) == {"neon-dark", "midnight", "paper-light"}
+    assert set(manager.theme_ids()) == {"neon-dark", "midnight", "paper-light", "classroom"}
     assert manager.current.id == "neon-dark"
 
 
@@ -80,6 +80,21 @@ def test_all_themes_use_final_label_as_the_route_color():
     for registered in ThemeManager.THEMES.values():
         assert registered.edge_styles["final"].label_fg == registered.edge_styles["final"].stroke
         assert registered.edge_styles["not_in_path"].opacity < registered.edge_styles["final"].opacity
+
+
+@pytest.mark.ui
+def test_classroom_rejected_paths_are_red_and_final_path_is_green():
+    # The Classroom theme teaches by contrast: when a run ends, the chosen path
+    # goes green while everything the algorithm rejected goes red.
+    classroom = ThemeManager.THEMES["classroom"]
+
+    assert classroom.edge_styles["final"].stroke == "#16a34a"
+    assert classroom.node_styles["final"].ring == "#16a34a"
+    assert classroom.edge_styles["not_in_path"].stroke == "#dc2626"
+    assert classroom.node_styles["not_in_path"].ring == "#dc2626"
+    # Unreachable stays distinguishable from merely-rejected: darker brick red.
+    assert classroom.edge_styles["unreachable"].stroke == "#7f1d1d"
+    assert classroom.edge_styles["not_in_path"].stroke != classroom.edge_styles["unreachable"].stroke
 
 
 @pytest.mark.ui
